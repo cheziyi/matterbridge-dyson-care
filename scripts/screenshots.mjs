@@ -236,7 +236,7 @@ const page$ = `http://127.0.0.1:${typeof address === 'object' && address !== nul
 
 const browser = await launch();
 // A short viewport, so that a page shorter than it is taken at its own height.
-const page = await browser.newPage({ viewport: { width: 1440, height: 400 }, colorScheme: 'light' });
+const page = await browser.newPage({ viewport: { width: 1440, height: 400 }, colorScheme: 'dark' });
 const click = async (name) => page.getByRole('button', { name, exact: true }).click();
 const settle = async () => {
   await page.mouse.move(0, 0);
