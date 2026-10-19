@@ -1,9 +1,10 @@
 /**
  * @file src/module.ts
- * @description This file contains the plugin template.
+ * @description This file contains the Matterbridge platform for Dyson purifiers, fans, heaters and humidifiers controlled through the Dyson cloud.
  * @author Luca Liguori
+ * @contributor Calvin Che
  * @created 2025-06-15
- * @version 2.0.0
+ * @version 3.0.0
  * @license Apache-2.0
  *
  * Copyright 2025, 2026, 2027 Luca Liguori.
@@ -21,16 +22,50 @@
  * limitations under the License.
  */
 
-import { type BasePlatformConfig, MatterbridgeDynamicPlatform, MatterbridgeEndpoint, onOffPlugInUnit, type PlatformMatterbridge, thermostat } from 'matterbridge';
+import {
+  type DysonAccount,
+  type DysonMachine,
+  EnvironmentalCareClient,
+  type EnvironmentalCareCapabilities,
+  type EnvironmentalCareSensors,
+  getCountries,
+  getMachines,
+  login,
+  requestLoginCode,
+} from 'dyson-control';
+import { MatterbridgeDynamicPlatform, type MatterbridgeEndpoint, type PlatformConfig, type PlatformMatterbridge } from 'matterbridge';
 import type { AnsiLogger, LogLevel } from 'matterbridge/logger';
-import type { ActionContext } from 'matterbridge/matter';
-import { OnOff, Thermostat } from 'matterbridge/matter/clusters';
 
-// This allows to have type checking and autocompletion for the instance config.
-export type TemplatePlatformConfig = BasePlatformConfig & {
-  whiteList: string[];
-  blackList: string[];
-};
+import { DysonAccessory, type MachineClientFactory } from './accessory/dysonAccessory.js';
+import {
+  type DysonAccountConfig,
+  type DysonDeviceConfig,
+  type DysonPlatformConfig,
+  getUnreadableDevices,
+  hasSameExposure,
+  hasSameMachine,
+  normalizePollInterval,
+  parseAccountConfig,
+  parseDeviceConfigs,
+  toDysonMachine,
+} from './config.js';
+import { addReportedSensors, fitToCapabilities, getAvailableControls, hasSameControls, noReportedSensors, type ReportedSensors } from './controls.js';
+import { describeSignInFailure, getErrorMessage, isSignInRequired, type SignInStep, signInRequiredStatus } from './errors.js';
+import { getMachineUpdate } from './platform/machineSync.js';
+import { SensorStore } from './platform/sensorStore.js';
+import { parseSetupRevision, SetupRevisions } from './platform/setupRevisions.js';
+import { getMachineSupport, probeMachine, type ProbeResult } from './setup/probe.js';
+import { type FoundMachine, handleSetupRequest, type SetupDevice, type SetupPlatform, type SetupState, type SignInRequest } from './setup/setupApi.js';
+
+/** How often, in milliseconds, the machine list of the account is read to keep the firmware of each machine up to date. */
+export const machineSyncIntervalInMs = 15 * 60 * 1000;
+
+/** How long, in milliseconds, a call waits for each of the cloud, the broker and the machine. */
+export const machineTimeoutInMs = 10_000;
+
+const requiredMatterbridgeVersion = '3.10.10';
+
+export type { DysonPlatformConfig } from './config.js';
 
 /**
  * This is the standard interface for Matterbridge plugins.
@@ -38,44 +73,73 @@ export type TemplatePlatformConfig = BasePlatformConfig & {
  *
  * @param {PlatformMatterbridge} matterbridge - An instance of MatterBridge.
  * @param {AnsiLogger} log - An instance of AnsiLogger. This is used for logging messages in a format that can be displayed with ANSI color codes and in the frontend.
- * @param {TemplatePlatformConfig} config - The platform configuration.
- * @returns {TemplatePlatform} - An instance of the MatterbridgeAccessory or MatterbridgeDynamicPlatform class. This is the main interface for interacting with the Matterbridge system.
+ * @param {DysonPlatformConfig} config - The platform configuration.
+ * @returns {DysonPlatform} - An instance of the MatterbridgeAccessory or MatterbridgeDynamicPlatform class. This is the main interface for interacting with the Matterbridge system.
  */
-export default function initializePlugin(matterbridge: PlatformMatterbridge, log: AnsiLogger, config: TemplatePlatformConfig): TemplatePlatform {
-  return new TemplatePlatform(matterbridge, log, config);
+export default function initializePlugin(matterbridge: PlatformMatterbridge, log: AnsiLogger, config: DysonPlatformConfig): DysonPlatform {
+  return new DysonPlatform(matterbridge, log, config);
 }
 
-// Here we define the TemplatePlatform class, which extends the MatterbridgeDynamicPlatform.
-// If you want to create an Accessory platform plugin, you should extend the MatterbridgeAccessoryPlatform class instead.
-export class TemplatePlatform extends MatterbridgeDynamicPlatform {
-  constructor(matterbridge: PlatformMatterbridge, log: AnsiLogger, config: TemplatePlatformConfig) {
+/**
+ * The platform: it holds the Dyson account, stores the devices by the serial number of their machine, keeps their
+ * firmware up to date, exposes each one to Matter and serves the guided setup.
+ */
+export class DysonPlatform extends MatterbridgeDynamicPlatform implements SetupPlatform {
+  private account: DysonAccountConfig | undefined;
+  /** Whether the cloud refused the account's token, so that it has to be signed in again. */
+  private isAccountRejected = false;
+  private devices: DysonDeviceConfig[];
+  /** The stored devices this version cannot read, which are stored again as they are. */
+  private unreadableDevices: unknown[];
+  /** The running devices, by the serial number of their machine. */
+  private readonly accessories = new Map<string, DysonAccessory>();
+  private readonly sensorStore = new SensorStore(() => this.context);
+  /** Why a stored device is not running, by the serial number of its machine. */
+  private readonly startErrors = new Map<string, string>();
+  /** What the sensors of a machine read at the last successful setup check, by its serial number, until the device is stored. */
+  private readonly probedSensors = new Map<string, EnvironmentalCareSensors>();
+  private pollTimer: NodeJS.Timeout | undefined;
+  private syncTimer: NodeJS.Timeout | undefined;
+  private pollIntervalInSeconds: number;
+  private readonly revisions: SetupRevisions;
+  /** The devices whose machine is being read, so that a machine that is slow to answer holds up no other. */
+  private readonly polling = new Set<DysonAccessory>();
+  private machineList: Promise<DysonMachine[]> | undefined;
+  // Changes to the device list run one after the other.
+  private changes: Promise<void> = Promise.resolve();
+
+  constructor(matterbridge: PlatformMatterbridge, log: AnsiLogger, config: DysonPlatformConfig) {
     // Always call super(matterbridge, log, config)
     super(matterbridge, log, config);
 
     // Verify that Matterbridge is the correct version
-    if (typeof this.verifyMatterbridgeVersion !== 'function' || !this.verifyMatterbridgeVersion('3.10.10')) {
+    if (typeof this.verifyMatterbridgeVersion !== 'function' || !this.verifyMatterbridgeVersion(requiredMatterbridgeVersion)) {
       throw new Error(
-        `This plugin requires Matterbridge version >= "3.10.10". Please update Matterbridge from ${this.matterbridge.matterbridgeVersion} to the latest version in the frontend.`,
+        `This plugin requires Matterbridge version >= "${requiredMatterbridgeVersion}". Please update Matterbridge from ${this.matterbridge.matterbridgeVersion} to the latest version in the frontend.`,
       );
     }
 
     this.log.info(`Initializing platform ${this.config.name}...`);
-    // You can initialize your platform here, like setting up initial state or loading configurations.
-
+    this.account = parseAccountConfig(config.account);
+    if (config.account !== undefined && this.account === undefined) this.log.warn('The stored Dyson account cannot be read: sign in again in the setup page');
+    this.devices = parseDeviceConfigs(config.devices, (message) => this.log.warn(message));
+    this.unreadableDevices = getUnreadableDevices(config.devices, this.devices);
+    this.revisions = new SetupRevisions(config.setupRevision);
+    this.pollIntervalInSeconds = normalizePollInterval(config.pollIntervalInSeconds);
     this.log.info(`Platform ${this.config.name} initialized successfully`);
   }
 
   override async onStart(reason?: string): Promise<void> {
     this.log.info(`Starting platform ${this.config.name} with reason: ${reason ?? 'no reason provided'}...`);
 
-    // Wait for the platform to fully load the select if you use them.
+    // Wait for the platform storage, which holds the readings each machine has given.
     await this.ready;
 
-    // Clean the selectDevice and selectEntity maps, if you want to reset the select. This is useful when you have an API that sends all the devices and you want to rediscover all of them.
-    await this.clearSelect();
-
-    // Implements your own logic there
-    await this.discoverDevices();
+    if (this.account === undefined && this.devices.length > 0) this.log.warn('No Dyson account is signed in: sign in in the setup page to start the devices');
+    for (const device of this.devices) await this.startDevice(device);
+    this.startTimers();
+    // The stored firmware may be out of date: do not hold the start for the cloud.
+    void this.syncMachines();
 
     this.log.info(`Platform ${this.config.name} started successfully`);
   }
@@ -85,30 +149,13 @@ export class TemplatePlatform extends MatterbridgeDynamicPlatform {
     await super.onConfigure();
 
     this.log.info(`Configuring platform ${this.config.name}...`);
-
-    // Configure all your devices. The persisted attributes need to be updated.
-    for (const device of this.getDevices()) {
-      this.log.info(`Configuring device ${device.deviceName} with id ${device.originalId}`);
-      // You can update the device state here, for example:
-      if (device.id === 'outlet1') {
-        // Set the outlet to be on by default with setCluster or setAttribute methods. Prefer setting the cluster when more attributes need to be updated.
-        // await device.setCluster(OnOff, { onOff: true }, this.log); // this.log is optional, but it is useful to log the attribute changes.
-        await device.setAttribute(OnOff, 'onOff', true, this.log); // this.log is optional, but it is useful to log the attribute changes.
-      }
-      if (device.id === 'thermo1') {
-        // Set the thermostat to heat mode by default with setCluster or setAttribute methods. Prefer setting the cluster when more attributes need to be updated.
-        await device.setCluster(Thermostat, { systemMode: Thermostat.SystemMode.Heat }, this.log); // this.log is optional, but it is useful to log the attribute changes.
-        // await device.setAttribute(Thermostat, 'systemMode', Thermostat.SystemMode.Heat, this.log); // this.log is optional, but it is useful to log the attribute changes.
-      }
-    }
-
+    await this.pollDevices();
     this.log.info(`Platform ${this.config.name} configured successfully`);
   }
 
   // oxlint-disable-next-line typescript/require-await
   override async onChangeLoggerLevel(logLevel: LogLevel): Promise<void> {
     this.log.info(`onChangeLoggerLevel called with: ${logLevel}`);
-    // Change here the logger level of the api you use or of your devices
   }
 
   override async onShutdown(reason?: string): Promise<void> {
@@ -117,87 +164,498 @@ export class TemplatePlatform extends MatterbridgeDynamicPlatform {
 
     this.log.info(`Shutting down platform ${this.config.name} with reason: ${reason ?? 'no reason provided'}...`);
 
+    this.stopTimers();
+    await this.changes;
+    for (const accessory of this.accessories.values()) await accessory.dispose();
+    this.accessories.clear();
     if (this.config.unregisterOnShutdown) await this.unregisterAllDevices();
 
     this.log.info(`Platform ${this.config.name} shut down successfully`);
   }
 
-  private async discoverDevices(): Promise<void> {
-    this.log.info('Discovering devices...');
-    // Implement device discovery logic here.
-    // For example, you might fetch devices from an API.
-    // and register them with the Matterbridge instance.
-
-    // Example: Create and register an outlet device (shows how to use the addCommandHandler method)
-    // If you want to create an Accessory platform plugin and your platform extends MatterbridgeAccessoryPlatform,
-    // instead of createDefaultBridgedDeviceBasicInformationClusterServer, call createDefaultBasicInformationClusterServer().
-    const outlet = new MatterbridgeEndpoint(onOffPlugInUnit, { id: 'outlet1' })
-      .createDefaultBridgedDeviceBasicInformationClusterServer('Outlet', 'SN123456', this.matterbridge.aggregatorVendorId, 'Matterbridge', 'Matterbridge Outlet', 10000, '1.0.0')
-      .createDefaultPowerSourceWiredClusterServer()
-      .addRequiredClusters() // This will add both server and client clusters that are required by the device.
-      .addCommandHandler('on', (data) => {
-        // This is called before any validation and state updates are applied. You can use this to intercept commands early.
-        outlet.log.info(`Command ${data.command} called on cluster ${data.cluster}`);
-      })
-      .addCommandHandler('off', (data) => {
-        // This is called before any validation and state updates are applied. You can use this to intercept commands early.
-        outlet.log.info(`Command ${data.command} called on cluster ${data.cluster}`);
-      })
-      .subscribeCommand(OnOff, 'on', (data) => {
-        // This is called after the command has been validated and state updates have been applied. You can use this to react to the command execution.
-        outlet.log.info(`Command ${data.command} executed on cluster ${data.cluster}`);
-      })
-      .subscribeCommand(OnOff, 'off', (data) => {
-        // This is called after the command has been validated and state updates have been applied. You can use this to react to the command execution.
-        outlet.log.info(`Command ${data.command} executed on cluster ${data.cluster}`);
-      });
-
-    // Set the selectDevice for the outlet we created. This is used to link the device with the select in the frontend.
-    this.setSelectDevice('SN123456', 'Outlet');
-
-    // Validate the device with the select before registering it.
-    if (this.validateDevice(['Outlet', 'SN123456'])) {
-      // Register the device with this Matterbridge Platform.
-      await this.registerDevice(outlet);
+  /**
+   * Apply a configuration saved in the Matterbridge config editor
+   *
+   * The editor changes the poll interval. The account and the devices are set up in the setup page alone, and the
+   * editor does not list them.
+   *
+   * The editor still holds the whole configuration it loaded with its page, and sends all of it back. Saved after the
+   * setup page changed the account or the devices meanwhile, that copy holds those of before: it is recognized by its
+   * revision, and the account and the devices are stored again as they are.
+   *
+   * @param {PlatformConfig} config The saved configuration.
+   * @returns {Promise<void>} Resolves when the configuration is applied.
+   */
+  // oxlint-disable-next-line typescript/require-await
+  override async onConfigChanged(config: PlatformConfig): Promise<void> {
+    if (this.pollTimer === undefined) return;
+    // A configuration this plugin stored itself comes back here within moments, with nothing in it to apply.
+    const revision = parseSetupRevision(config.setupRevision);
+    if (this.revisions.acknowledge(revision)) return;
+    const pollIntervalInSeconds = normalizePollInterval(config.pollIntervalInSeconds);
+    if (pollIntervalInSeconds !== this.pollIntervalInSeconds) {
+      this.pollIntervalInSeconds = pollIntervalInSeconds;
+      this.startTimers();
     }
+    if (revision !== this.revisions.current) this.storeConfig();
+  }
 
-    // Example: Create and register an thermostat device (shows how to use the subscribeAttribute method to listen for attribute changes)
-    // If you want to create an Accessory platform plugin and your platform extends MatterbridgeAccessoryPlatform,
-    // instead of createDefaultBridgedDeviceBasicInformationClusterServer, call createDefaultBasicInformationClusterServer().
-    const thermo = new MatterbridgeEndpoint(thermostat, { id: 'thermo1' })
-      .createDefaultBridgedDeviceBasicInformationClusterServer(
-        'Thermostat',
-        'SN654321',
-        this.matterbridge.aggregatorVendorId,
-        'Matterbridge',
-        'Matterbridge Thermostat',
-        10000,
-        '1.0.0',
-      )
-      .createDefaultPowerSourceBatteryClusterServer()
-      // Configure realistic setpoint limits (7-30 °C heating, 16-35 °C cooling) instead of the 0-50 °C
-      // defaults, so the heating/cooling limits satisfy the Matter spec minimum of 7 °C for MinHeatSetpointLimit.
-      .createDefaultThermostatClusterServer(23, 21, 25, 2.5, 7, 30, 16, 35)
-      .addRequiredClusters() // This will add both server and client clusters that are required by the device.
-      .subscribeAttribute(Thermostat, 'systemMode', (newValue: Thermostat.SystemMode, oldValue: Thermostat.SystemMode, context: ActionContext) => {
-        thermo.log.info(`Attribute systemMode changed ${context.fabric === undefined ? 'offline' : 'online'} from ${oldValue} to ${newValue}`);
-      })
-      .subscribeAttribute(Thermostat, 'occupiedCoolingSetpoint', (newValue: number, oldValue: number, context: ActionContext) => {
-        thermo.log.info(`Attribute occupiedCoolingSetpoint changed ${context.fabric === undefined ? 'offline' : 'online'} from ${oldValue} to ${newValue}`);
-      })
-      .subscribeAttribute(Thermostat, 'occupiedHeatingSetpoint', (newValue: number, oldValue: number, context: ActionContext) => {
-        thermo.log.info(`Attribute occupiedHeatingSetpoint changed ${context.fabric === undefined ? 'offline' : 'online'} from ${oldValue} to ${newValue}`);
+  /**
+   * Serve the setup page's requests to `/plugins/<plugin name>/api/<path>`
+   *
+   * @param {string} method The HTTP method.
+   * @param {string} [path] The path after `api/`.
+   * @param {Record<string, unknown>} [query] The query string parameters.
+   * @param {unknown} [body] The parsed JSON body.
+   * @returns {Promise<unknown>} The JSON reply, or undefined for a path the plugin does not serve.
+   */
+  override async onFetch(method: string, path?: string, query?: Record<string, unknown>, body?: unknown): Promise<unknown> {
+    return handleSetupRequest(this, method, path, query, body);
+  }
+
+  /**
+   * Describe the account and the stored devices for the setup page
+   *
+   * @returns {Promise<SetupState>} The account without its token, and each device with how it is doing and the readings its machine has given.
+   */
+  async getSetupState(): Promise<SetupState> {
+    const devices: SetupDevice[] = [];
+    for (const device of this.devices) {
+      const accessory = this.accessories.get(device.serialNumber);
+      const status = accessory?.getStatus();
+      let state: SetupDevice['status'] = 'stopped';
+      if (status?.isReachable === true) state = 'online';
+      else if (status?.isConnecting === true) state = 'connecting';
+      else if (status !== undefined) state = 'offline';
+      const capabilities = accessory?.capabilities ?? this.readCapabilities(device);
+      devices.push({
+        ...device,
+        status: state,
+        error: status === undefined ? this.startErrors.get(device.serialNumber) : status.lastError,
+        capabilities,
+        controls: capabilities === undefined ? undefined : getAvailableControls(capabilities),
+        reportedSensors: (await this.sensorStore.read(device)) ?? noReportedSensors,
       });
-
-    // Set the selectDevice for the thermostat we created. This is used to link the device with the select in the frontend.
-    this.setSelectDevice('SN654321', 'Thermostat');
-
-    // Validate the device with the select before registering it.
-    if (this.validateDevice(['Thermostat', 'SN654321'])) {
-      // Register the device with this Matterbridge Platform.
-      await this.registerDevice(thermo);
     }
+    const { account } = this;
+    return { account: account === undefined ? undefined : { email: account.email, country: account.country, needsSignIn: this.isAccountRejected }, devices };
+  }
 
-    this.log.info('Devices registered successfully...');
+  /**
+   * List the countries the cloud registers accounts in, for the setup page
+   *
+   * @returns {Promise<string[]>} Such as `["GB", "US"]`, in alphabetical order.
+   */
+  async getCountries(): Promise<string[]> {
+    return (await getCountries({ timeoutInMs: machineTimeoutInMs })).toSorted();
+  }
+
+  /**
+   * Have the cloud email a login code to an account
+   *
+   * @param {string} email The address of the account.
+   * @param {string} country The country of the account, as two capital letters. The cloud answers the same in any culture, so dyson-control's default one is used.
+   * @returns {Promise<string>} The challenge id to sign in with, with the code.
+   * @throws {Error} When the cloud refuses the address or does not answer, with what went wrong and its HTTP status.
+   */
+  async requestLoginCode(email: string, country: string): Promise<string> {
+    try {
+      return await requestLoginCode({ email, country, timeoutInMs: machineTimeoutInMs });
+    } catch (error) {
+      throw this.signInFailure(error, 'code', `Dyson did not email a login code to ${email}`);
+    }
+  }
+
+  /**
+   * Sign in to an account, store it and connect every stored device through it
+   *
+   * The password is used once and never stored: the account holds a token.
+   *
+   * @param {SignInRequest} request The address, the password, the emailed code and its challenge id, and the country.
+   * @returns {Promise<void>} Resolves when the account is stored and the devices are connected through it.
+   * @throws {Error} When the cloud refuses the password or the code, with what went wrong and its HTTP status.
+   */
+  async signIn(request: SignInRequest): Promise<void> {
+    const { email, password, challengeId, otpCode, country } = request;
+    let account: DysonAccount;
+    try {
+      account = await login({ email, password, challengeId, otpCode, country, timeoutInMs: machineTimeoutInMs });
+    } catch (error) {
+      throw this.signInFailure(error, 'login', `The sign in to the Dyson account ${email} failed`);
+    }
+    this.log.notice(`Signed in to the Dyson account ${email}`);
+    const signedIn: DysonAccountConfig = { ...account, email };
+    await this.enqueueChange(async () => {
+      this.account = signedIn;
+      this.isAccountRejected = false;
+      this.storeConfig();
+      for (const device of this.devices) {
+        const accessory = this.accessories.get(device.serialNumber);
+        if (accessory === undefined) await this.startDevice(device);
+        else await accessory.updateConnection(this.createClientFactory(device, signedIn));
+      }
+    });
+    void this.syncMachines();
+  }
+
+  /**
+   * Forget the account
+   *
+   * The devices stay in Matter, with their rooms and their automations, and are unreachable until an account is signed
+   * in again.
+   *
+   * @returns {Promise<void>} Resolves when the account is forgotten and every device is disconnected.
+   */
+  async signOut(): Promise<void> {
+    await this.enqueueChange(async () => {
+      this.account = undefined;
+      this.isAccountRejected = false;
+      this.storeConfig();
+      for (const accessory of this.accessories.values()) await accessory.suspend();
+    });
+    this.log.notice('Signed out of the Dyson account');
+  }
+
+  /**
+   * List the machines of the account, for the setup page
+   *
+   * The list also brings the firmware of the stored devices up to date.
+   *
+   * @returns {Promise<FoundMachine[]>} The machines, each marked when it is stored already and when the plugin cannot control it.
+   * @throws {Error} When no account is signed in, or the cloud does not answer.
+   */
+  async listMachines(): Promise<FoundMachine[]> {
+    const { account } = this;
+    if (account === undefined) throw new Error('Sign in to your Dyson account first');
+    const machines = await this.readMachines(account);
+    await this.applyMachines(machines);
+    return machines.map((machine) => ({
+      ...machine,
+      isConfigured: this.devices.some((stored) => stored.serialNumber === machine.serialNumber),
+      support: getMachineSupport(machine, account),
+    }));
+  }
+
+  /**
+   * Check whether a machine answers through the cloud
+   *
+   * @param {DysonMachine} machine The machine to check.
+   * @returns {Promise<ProbeResult>} `ready` with the readings the machine is known to have given, or the failure that stands in the way.
+   */
+  async probe(machine: DysonMachine): Promise<ProbeResult> {
+    const { account } = this;
+    if (account === undefined) return { status: 'signInRequired', machine, message: 'No Dyson account is signed in' };
+    const result = await probeMachine(machine, account);
+    if (result.status === 'signInRequired') this.rejectAccount();
+    if (result.sensors === undefined) return result;
+    this.probedSensors.set(machine.serialNumber, result.sensors);
+    // A reading the machine gave before still counts, whether or not this check got it.
+    const known = (await this.sensorStore.read(machine)) ?? noReportedSensors;
+    return { ...result, reportedSensors: addReportedSensors(known, result.sensors) };
+  }
+
+  /**
+   * Store a device, adding it or replacing the stored device of the same machine
+   *
+   * @param {DysonDeviceConfig} device The device.
+   * @returns {Promise<void>} Resolves when the device is stored and started, restarted or updated.
+   * @throws {Error} When another stored device already has the name.
+   */
+  async saveDevice(device: DysonDeviceConfig): Promise<void> {
+    const stored = this.devices.find((candidate) => candidate.serialNumber === device.serialNumber);
+    if (this.devices.some((candidate) => candidate !== stored && candidate.name === device.name)) throw new Error(`Another machine is already named "${device.name}"`);
+    const sensors = this.probedSensors.get(device.serialNumber);
+    if (sensors !== undefined) {
+      // A reading the machine gave before still counts, whether or not the check got it.
+      await this.sensorStore.write(device, addReportedSensors((await this.sensorStore.read(device)) ?? noReportedSensors, sensors));
+      this.probedSensors.delete(device.serialNumber);
+    }
+    const capabilities = this.readCapabilities(device);
+    const next = capabilities === undefined ? { ...device } : fitToCapabilities(device, capabilities);
+    const devices = stored === undefined ? [...this.devices, next] : this.devices.map((candidate) => (candidate === stored ? next : candidate));
+    await this.applyDevices(devices);
+  }
+
+  /**
+   * Remove a stored device and its Matter endpoints
+   *
+   * @param {string} serialNumber The serial number of its machine.
+   * @returns {Promise<boolean>} False when no device has that machine.
+   */
+  async removeDevice(serialNumber: string): Promise<boolean> {
+    if (!this.devices.some((device) => device.serialNumber === serialNumber)) return false;
+    await this.applyDevices(this.devices.filter((device) => device.serialNumber !== serialNumber));
+    return true;
+  }
+
+  /**
+   * Read the machine list of the account and store the firmware of each stored device that changed
+   *
+   * A failed read is logged, never thrown.
+   *
+   * @returns {Promise<void>} Resolves when the stored devices are up to date and the devices that could not start were retried.
+   */
+  async syncMachines(): Promise<void> {
+    const { account } = this;
+    if (account === undefined) return;
+    try {
+      await this.applyMachines(await this.readMachines(account));
+    } catch (error) {
+      this.log.warn(`The machines of the Dyson account could not be read: ${getErrorMessage(error)}`);
+    }
+    try {
+      await this.enqueueChange(async () => this.startStoppedDevices());
+    } catch {
+      // enqueueChange logged it.
+    }
+  }
+
+  /**
+   * Read the state and the readings of every running device once
+   *
+   * A device whose machine has not answered the read before this one is left out, so that the others are still read on
+   * time. A machine that gave a reading its device shows nowhere yet has the device built again in Matter, with a
+   * place for it.
+   *
+   * @returns {Promise<void>} Resolves when every device that was read answered or failed.
+   */
+  async pollDevices(): Promise<void> {
+    if (this.account === undefined) return;
+    const idle = [...this.accessories.values()].filter((accessory) => !this.polling.has(accessory));
+    try {
+      await Promise.all(
+        idle.map(async (accessory) => {
+          this.polling.add(accessory);
+          try {
+            await accessory.refresh();
+            if (accessory.getStatus().lastErrorStatus === signInRequiredStatus) this.rejectAccount();
+          } finally {
+            this.polling.delete(accessory);
+          }
+        }),
+      );
+      await this.enqueueChange(async () => this.exposeNewSensors());
+    } catch {
+      // enqueueChange logged it.
+    }
+  }
+
+  // Logged, since the setup page shows the reason and the log is where it is looked for afterwards.
+  private signInFailure(error: unknown, step: SignInStep, what: string): Error {
+    const description = describeSignInFailure(error, step);
+    this.log.warn(`${what}: ${description}`);
+    return new Error(description);
+  }
+
+  private rejectAccount(): void {
+    if (!this.isAccountRejected) this.log.warn('The Dyson cloud no longer accepts the account: sign in again in the setup page');
+    this.isAccountRejected = true;
+  }
+
+  private async readMachines(account: DysonAccountConfig): Promise<DysonMachine[]> {
+    // Two reads at once would ask the cloud twice for the same list.
+    this.machineList ??= getMachines(account, { timeoutInMs: machineTimeoutInMs }).finally(() => {
+      this.machineList = undefined;
+    });
+    try {
+      const machines = await this.machineList;
+      this.isAccountRejected = false;
+      return machines;
+    } catch (error) {
+      if (isSignInRequired(error)) this.rejectAccount();
+      throw error;
+    }
+  }
+
+  private startTimers(): void {
+    this.stopTimers();
+    this.pollTimer = setInterval(() => void this.pollDevices(), this.pollIntervalInSeconds * 1000);
+    this.pollTimer.unref();
+    this.syncTimer = setInterval(() => void this.syncMachines(), machineSyncIntervalInMs);
+    this.syncTimer.unref();
+  }
+
+  private stopTimers(): void {
+    clearInterval(this.pollTimer);
+    clearInterval(this.syncTimer);
+    this.pollTimer = undefined;
+    this.syncTimer = undefined;
+  }
+
+  private async enqueueChange(task: () => Promise<void>): Promise<void> {
+    const result = this.changes.then(task);
+    this.changes = result.catch((error: unknown) => {
+      this.log.error(`A change to the devices failed: ${getErrorMessage(error)}`);
+    });
+    return result;
+  }
+
+  /**
+   * Read what a stored machine takes, without connecting
+   *
+   * @param {DysonDeviceConfig} device The device.
+   * @returns {EnvironmentalCareCapabilities | undefined} The capabilities, or undefined when no account is signed in or the plugin does not know the type of the machine.
+   */
+  private readCapabilities(device: DysonDeviceConfig): EnvironmentalCareCapabilities | undefined {
+    const { account } = this;
+    if (account === undefined) return undefined;
+    try {
+      return new EnvironmentalCareClient(toDysonMachine(device), { account }).capabilities;
+    } catch {
+      return undefined;
+    }
+  }
+
+  private createClientFactory(device: DysonDeviceConfig, account: DysonAccountConfig): MachineClientFactory {
+    return (handlers) => new EnvironmentalCareClient(toDysonMachine(device), { account, timeoutInMs: machineTimeoutInMs, ...handlers });
+  }
+
+  private async applyMachines(machines: DysonMachine[]): Promise<void> {
+    await this.enqueueChange(async () => {
+      const devices = this.devices.map((stored) => {
+        const updated = getMachineUpdate(stored, machines, this.log);
+        if (updated === undefined) return stored;
+        if (updated.firmwareVersion !== stored.firmwareVersion) this.log.notice(`"${updated.name}" now runs the firmware ${updated.firmwareVersion ?? 'the cloud does not name'}`);
+        return updated;
+      });
+      if (devices.some((device, index) => device !== this.devices[index])) await this.reconcile(devices);
+    });
+  }
+
+  // Stores the account and the devices, under a new revision.
+  private storeConfig(): void {
+    this.config.setupRevision = this.revisions.advance();
+    this.config.account = this.account;
+    // A device this version cannot read stays stored, until one with its name or its serial number takes its place.
+    this.unreadableDevices = getUnreadableDevices(this.unreadableDevices, this.devices);
+    this.config.devices = [...this.devices, ...this.unreadableDevices];
+    this.saveConfig(this.config);
+  }
+
+  /**
+   * Make the running devices match a new device list
+   *
+   * @param {DysonDeviceConfig[]} devices The new list.
+   * @returns {Promise<void>} Resolves when every device is started, stopped, restarted or updated.
+   */
+  private async applyDevices(devices: DysonDeviceConfig[]): Promise<void> {
+    await this.enqueueChange(async () => this.reconcile(devices));
+  }
+
+  // Runs inside the queue of changes.
+  private async reconcile(devices: DysonDeviceConfig[]): Promise<void> {
+    const previous = this.devices;
+    // A machine whose firmware changed may take other settings.
+    this.devices = devices.map((device) => {
+      const capabilities = this.readCapabilities(device);
+      return capabilities === undefined ? device : fitToCapabilities(device, capabilities);
+    });
+    this.storeConfig();
+    for (const device of previous) {
+      if (!this.devices.some((candidate) => candidate.serialNumber === device.serialNumber)) await this.stopDevice(device, true);
+    }
+    for (const device of this.devices) {
+      const before = previous.find((candidate) => candidate.serialNumber === device.serialNumber);
+      const accessory = this.accessories.get(device.serialNumber);
+      if (before === undefined || accessory === undefined) {
+        await this.startDevice(device);
+      } else if (!hasSameExposure(before, device) || !this.hasSameControls(accessory, device)) {
+        if (hasSameExposure(before, device)) this.log.notice(`"${device.name}" takes other settings than when it was set up: it is built again in Matter`);
+        // The name and the clusters of a registered endpoint cannot change, so the endpoints are built again.
+        await this.stopDevice(before, false);
+        await this.startDevice(device);
+      } else if (!hasSameMachine(before, device) && this.account !== undefined) {
+        await accessory.updateConnection(this.createClientFactory(device, this.account));
+      }
+    }
+  }
+
+  private hasSameControls(accessory: DysonAccessory, device: DysonDeviceConfig): boolean {
+    const capabilities = this.readCapabilities(device);
+    return capabilities === undefined || hasSameControls(accessory.capabilities, capabilities);
+  }
+
+  private async startStoppedDevices(): Promise<void> {
+    for (const device of this.devices) {
+      if (!this.accessories.has(device.serialNumber)) await this.startDevice(device);
+    }
+  }
+
+  /**
+   * Create the Matter endpoints of a device and register them
+   *
+   * A device that cannot start is logged and retried on the next read of the machine list, never thrown.
+   *
+   * @param {DysonDeviceConfig} device The device.
+   * @param {ReportedSensors} [knownSensors] The readings its machine has given. Left out, the stored ones are used.
+   * @returns {Promise<void>} Resolves when the device runs, or could not be started.
+   */
+  private async startDevice(device: DysonDeviceConfig, knownSensors?: ReportedSensors): Promise<void> {
+    const { account } = this;
+    if (account === undefined) {
+      this.startErrors.set(device.serialNumber, 'No Dyson account is signed in: sign in in the setup page');
+      return;
+    }
+    const registered: MatterbridgeEndpoint[] = [];
+    let accessory: DysonAccessory | undefined;
+    try {
+      const reportedSensors = knownSensors ?? (await this.sensorStore.read(device)) ?? noReportedSensors;
+      accessory = new DysonAccessory({
+        config: device,
+        createClient: this.createClientFactory(device, account),
+        reportedSensors,
+        log: this.log,
+        vendorId: this.matterbridge.aggregatorVendorId,
+      });
+      for (const endpoint of accessory.endpoints) {
+        await this.registerDevice(endpoint);
+        registered.push(endpoint);
+      }
+      await accessory.clearReadings();
+      this.accessories.set(device.serialNumber, accessory);
+      this.startErrors.delete(device.serialNumber);
+      this.log.info(`"${device.name}" started with ${accessory.endpoints.length} Matter endpoint(s)`);
+      // Not awaited: a machine that does not answer must not hold up the start of the others.
+      void accessory.start();
+    } catch (error) {
+      const message = getErrorMessage(error);
+      if (this.startErrors.get(device.serialNumber) !== message) this.log.warn(`"${device.name}" could not be started and will be retried: ${message}`);
+      this.startErrors.set(device.serialNumber, message);
+      for (const endpoint of registered) await this.unregisterDevice(endpoint);
+      await accessory?.dispose();
+    }
+  }
+
+  /**
+   * Build again in Matter each device whose machine gave a reading it shows nowhere yet
+   *
+   * Runs inside the queue of changes.
+   *
+   * @returns {Promise<void>} Resolves when every such device has a place for the reading.
+   */
+  private async exposeNewSensors(): Promise<void> {
+    for (const device of this.devices) {
+      const news = this.accessories.get(device.serialNumber)?.takeNewlyReportedSensors();
+      if (news === undefined) continue;
+      const { reported } = news;
+      await this.sensorStore.write(device, reported);
+      if (!news.needsRebuild) continue;
+      this.log.notice(`"${device.name}" gave a reading it shows nowhere in Matter yet: it is built again in Matter`);
+      await this.stopDevice(device, false);
+      await this.startDevice(device, reported);
+    }
+  }
+
+  private async stopDevice(device: DysonDeviceConfig, shouldForget: boolean): Promise<void> {
+    const { name, serialNumber } = device;
+    const accessory = this.accessories.get(serialNumber);
+    this.accessories.delete(serialNumber);
+    this.startErrors.delete(serialNumber);
+    if (accessory !== undefined) {
+      await accessory.dispose();
+      for (const endpoint of accessory.endpoints) await this.unregisterDevice(endpoint);
+      this.log.info(`"${name}" stopped`);
+    }
+    if (shouldForget) await this.sensorStore.remove(device);
   }
 }

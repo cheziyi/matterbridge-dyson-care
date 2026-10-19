@@ -1,0 +1,8 @@
+{
+  "name": "matterbridge-dyson-care",
+  "type": "DynamicPlatform",
+  "pollIntervalInSeconds": 30,
+  "devices": [],
+  "debug": false,
+  "unregisterOnShutdown": false
+}

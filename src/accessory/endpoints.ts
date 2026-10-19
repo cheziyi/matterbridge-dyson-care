@@ -1,0 +1,307 @@
+/**
+ * @file src/accessory/endpoints.ts
+ * @description This file contains the builders of the Matter endpoints of one machine.
+ * @author Calvin Che
+ * @created 2026-10-19
+ * @version 1.0.0
+ * @license Apache-2.0
+ *
+ * Copyright 2026 Calvin Che.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+import {
+  airPurifier,
+  airQualitySensor,
+  bridgedNode,
+  type DeviceTypeDefinition,
+  fan,
+  humiditySensor,
+  MatterbridgeEndpoint,
+  modeSelect,
+  onOffPlugInUnit,
+  powerSource,
+  temperatureSensor,
+  thermostat,
+} from 'matterbridge';
+import { MatterbridgeFanControlServer } from 'matterbridge/behaviors';
+import { CommonNumberTag } from 'matterbridge/matter';
+import { NitrogenDioxideConcentrationMeasurementServer } from 'matterbridge/matter/behaviors';
+import { AirQuality, ConcentrationMeasurement, FanControl, type ModeSelect } from 'matterbridge/matter/clusters';
+import type { Semtag } from 'matterbridge/matter/types';
+
+import { composeDeviceName, defaultHeatTargetInC, getFanModeSequence, heatTargetRange } from '../mapping.js';
+import type { AccessoryLayout } from './layout.js';
+
+const vendorName = 'Dyson';
+
+/** The longest product name Matter takes. */
+const maxProductNameLength = 32;
+
+/** What every endpoint of a device says about the device it belongs to. */
+export interface EndpointIdentity {
+  /** The device name. */
+  name: string;
+  /** The serial number of the machine, which neither a new name nor a new firmware changes. */
+  serial: string;
+  /** The name the machine is sold under, such as `Purifier Cool`. */
+  productName: string;
+  /** The vendor id of the bridge, used for the bridged device information. */
+  vendorId: number;
+}
+
+/**
+ * Add the fan control of a device, with the features its layout has
+ *
+ * Every Dyson fan control has ten speeds and the step command. Each feature beside them is the native Matter place of a
+ * control: the fan mode Auto for the auto mode, the left and right rocking for the oscillation, the sleep wind for the
+ * night mode and the airflow direction for the direction of the air.
+ *
+ * @param {MatterbridgeEndpoint} endpoint The main endpoint of the device.
+ * @param {AccessoryLayout} layout How the controls of the device are laid out.
+ * @returns {void}
+ */
+function addFanControl(endpoint: MatterbridgeEndpoint, layout: AccessoryLayout): void {
+  const features: FanControl.Feature[] = [FanControl.Feature.Step];
+  // Off and 0 are valid in every sequence; the first read replaces them with the machine's own speed.
+  const state: Record<string, unknown> = {
+    fanMode: FanControl.FanMode.Off,
+    fanModeSequence: getFanModeSequence(layout.hasFanAuto),
+    percentSetting: 0,
+    percentCurrent: 0,
+  };
+  if (layout.hasFanSteps) {
+    features.push(FanControl.Feature.MultiSpeed);
+    Object.assign(state, { speedMax: layout.fanPositions.length, speedSetting: 0, speedCurrent: 0 });
+  }
+  if (layout.hasFanAuto) features.push(FanControl.Feature.Auto);
+  if (layout.hasRocking) {
+    features.push(FanControl.Feature.Rocking);
+    // A Dyson machine turns from side to side alone.
+    Object.assign(state, { rockSupport: { rockLeftRight: true, rockUpDown: false, rockRound: false }, rockSetting: { rockLeftRight: false, rockUpDown: false, rockRound: false } });
+  }
+  if (layout.hasSleepWind) {
+    features.push(FanControl.Feature.Wind);
+    Object.assign(state, { windSupport: { sleepWind: true, naturalWind: false }, windSetting: { sleepWind: false, naturalWind: false } });
+  }
+  if (layout.hasAirflowDirection) {
+    features.push(FanControl.Feature.AirflowDirection);
+    state.airflowDirection = FanControl.AirflowDirection.Forward;
+  }
+  endpoint.behaviors.require(MatterbridgeFanControlServer.with(...features), state);
+}
+
+/**
+ * Create the main endpoint of a device: an air purifier or a fan, with on/off and a fan control
+ *
+ * @param {EndpointIdentity} identity The device the endpoint belongs to.
+ * @param {AccessoryLayout} layout How the controls of the device are laid out.
+ * @returns {MatterbridgeEndpoint} The endpoint, with its clusters and nothing subscribed yet.
+ */
+export function createMainEndpoint(identity: EndpointIdentity, layout: AccessoryLayout): MatterbridgeEndpoint {
+  const deviceType = layout.deviceType === 'airPurifier' ? airPurifier : fan;
+  const endpoint = new MatterbridgeEndpoint([deviceType, bridgedNode, powerSource], { id: identity.serial })
+    .createDefaultIdentifyClusterServer()
+    .createDefaultBridgedDeviceBasicInformationClusterServer(identity.name, identity.serial, identity.vendorId, vendorName, identity.productName.slice(0, maxProductNameLength))
+    .createDefaultPowerSourceWiredClusterServer()
+    .createOnOffClusterServer(false);
+  addFanControl(endpoint, layout);
+  return endpoint.addRequiredClusters();
+}
+
+/**
+ * Create an endpoint of a device beside its main endpoint, without the clusters of its device type
+ *
+ * @param {DeviceTypeDefinition} deviceType What the endpoint is in Matter.
+ * @param {EndpointIdentity} identity The device the endpoint belongs to.
+ * @param {string} key What tells the endpoint apart in the endpoint id, such as `night-mode`.
+ * @param {string} code What tells the endpoint apart in the serial number, after a dash: one letter.
+ * @param {string} label What the endpoint is, such as `Night Mode`. It follows the device name in the name of the endpoint.
+ * @returns {MatterbridgeEndpoint} The endpoint.
+ */
+function createExtraEndpoint(deviceType: DeviceTypeDefinition, identity: EndpointIdentity, key: string, code: string, label: string): MatterbridgeEndpoint {
+  return new MatterbridgeEndpoint([deviceType, bridgedNode, powerSource], { id: `${identity.serial}-${key}` })
+    .createDefaultIdentifyClusterServer()
+    .createDefaultBridgedDeviceBasicInformationClusterServer(composeDeviceName(identity.name, label), `${identity.serial}-${code}`, identity.vendorId, vendorName, `Dyson ${label}`)
+    .createDefaultPowerSourceWiredClusterServer();
+}
+
+/**
+ * Create an endpoint that is a part of the main endpoint of a device, without the clusters of its device type
+ *
+ * A part has no name and no serial number: in Matter those are of the device, which is the main endpoint. It moves
+ * between the rooms of a Matter app with it, and is unreachable when it is.
+ *
+ * @param {MatterbridgeEndpoint} main The main endpoint the part is a part of.
+ * @param {DeviceTypeDefinition} deviceType What the endpoint is in Matter.
+ * @param {string} key What tells the endpoint apart in the endpoint id, such as `night-mode`.
+ * @param {Semtag} [tag] What tells the endpoint apart for a Matter app.
+ * @returns {MatterbridgeEndpoint} The endpoint.
+ */
+function createPartEndpoint(main: MatterbridgeEndpoint, deviceType: DeviceTypeDefinition, key: string, tag?: Semtag): MatterbridgeEndpoint {
+  return main.addChildDeviceType(key, deviceType, tag === undefined ? {} : { tagList: [tag] }).createDefaultIdentifyClusterServer();
+}
+
+/**
+ * Tag the next switch or mode select that is a part of a main endpoint
+ *
+ * Matter wants the parts of one device that have the same device type told apart by their tags, so each switch and each
+ * mode select gets a number: its place among the parts of its kind, in the order they are created. The tag carries what
+ * the part is as its label, for the Matter apps that show it.
+ *
+ * @param {MatterbridgeEndpoint} main The main endpoint the part is a part of.
+ * @param {DeviceTypeDefinition} deviceType The device type of the parts of this kind: an outlet for a switch, or a mode select.
+ * @param {string} label What the part is, such as `Night Mode`.
+ * @returns {Semtag} The tag.
+ */
+function getNumberTag(main: MatterbridgeEndpoint, deviceType: DeviceTypeDefinition, label: string): Semtag {
+  const count = main.getChildEndpoints().filter((part) => part.deviceTypes.has(deviceType.code)).length;
+  // In the namespace of the numbers, the tag of a number is the number itself.
+  return { ...CommonNumberTag.One, tag: count + 1, label };
+}
+
+/**
+ * Create an endpoint beside the main one, as a part of it or as a device of its own
+ *
+ * @param {DeviceTypeDefinition} deviceType What the endpoint is in Matter.
+ * @param {EndpointIdentity} identity The device the endpoint belongs to.
+ * @param {string} key What tells the endpoint apart in the endpoint id.
+ * @param {string} code What tells the endpoint apart in the serial number, after a dash: one letter.
+ * @param {string} label What the endpoint is. It follows the device name in the name of a device of its own, and is the label of the tag of a tagged part.
+ * @param {MatterbridgeEndpoint | undefined} main The main endpoint the endpoint is a part of. Left out, the endpoint is a device of its own.
+ * @param {boolean} isTagged Whether a part is tagged: the parts of a device type that a device can have more than one of.
+ * @returns {MatterbridgeEndpoint} The endpoint.
+ */
+function createSideEndpoint(
+  deviceType: DeviceTypeDefinition,
+  identity: EndpointIdentity,
+  key: string,
+  code: string,
+  label: string,
+  main: MatterbridgeEndpoint | undefined,
+  isTagged: boolean,
+): MatterbridgeEndpoint {
+  if (main === undefined) return createExtraEndpoint(deviceType, identity, key, code, label);
+  return createPartEndpoint(main, deviceType, key, isTagged ? getNumberTag(main, deviceType, label) : undefined);
+}
+
+/**
+ * Create one on/off switch of a device
+ *
+ * An outlet is the on/off device type every Matter app shows.
+ *
+ * @param {EndpointIdentity} identity The device the endpoint belongs to.
+ * @param {string} key What tells the switch apart in the endpoint id, such as `night-mode`.
+ * @param {string} code What tells the switch apart in the serial number, after a dash: one letter.
+ * @param {string} label What the switch is, such as `Night Mode`.
+ * @param {MatterbridgeEndpoint} [main] The main endpoint the switch is a part of. Left out, the switch is a device of its own.
+ * @returns {MatterbridgeEndpoint} The endpoint, with its clusters and nothing subscribed yet.
+ */
+export function createSwitchEndpoint(identity: EndpointIdentity, key: string, code: string, label: string, main?: MatterbridgeEndpoint): MatterbridgeEndpoint {
+  return createSideEndpoint(onOffPlugInUnit, identity, key, code, label, main, true).addRequiredClusters();
+}
+
+/**
+ * Create one mode select of a device
+ *
+ * @param {EndpointIdentity} identity The device the endpoint belongs to.
+ * @param {string} key What tells the select apart in the endpoint id, such as `humidity-select`.
+ * @param {string} code What tells the select apart in the serial number, after a dash: one letter.
+ * @param {string} label What the select picks, such as `Target Humidity`. It is also the description of its cluster.
+ * @param {ModeSelect.ModeOption[]} supportedModes The modes it picks from: at least one.
+ * @param {MatterbridgeEndpoint} [main] The main endpoint the select is a part of. Left out, the select is a device of its own.
+ * @returns {MatterbridgeEndpoint} The endpoint, on its first mode until the first read, with nothing subscribed yet.
+ */
+export function createModeSelectEndpoint(
+  identity: EndpointIdentity,
+  key: string,
+  code: string,
+  label: string,
+  supportedModes: ModeSelect.ModeOption[],
+  main?: MatterbridgeEndpoint,
+): MatterbridgeEndpoint {
+  // Matter refuses a current or a start-up mode that is not one of the modes.
+  const { mode } = supportedModes[0];
+  return createSideEndpoint(modeSelect, identity, key, code, label, main, true).createDefaultModeSelectClusterServer(label, supportedModes, mode, mode).addRequiredClusters();
+}
+
+/**
+ * Create the thermostat of a heater: it heats alone, to the setpoints the heater takes
+ *
+ * @param {EndpointIdentity} identity The device the endpoint belongs to.
+ * @param {MatterbridgeEndpoint} [main] The main endpoint the thermostat is a part of. Left out, it is a device of its own.
+ * @returns {MatterbridgeEndpoint} The endpoint, with no room temperature until the first read, and nothing subscribed yet.
+ */
+export function createThermostatEndpoint(identity: EndpointIdentity, main?: MatterbridgeEndpoint): MatterbridgeEndpoint {
+  return createSideEndpoint(thermostat, identity, 'heater', 'T', 'Heater', main, false)
+    .createDefaultHeatingThermostatClusterServer(defaultHeatTargetInC, defaultHeatTargetInC, heatTargetRange.min, heatTargetRange.max)
+    .addRequiredClusters();
+}
+
+/**
+ * Create the air quality sensor of a device, with a measurement for each pollutant its layout has
+ *
+ * A pollutant the machine reports as a concentration has its value. One it reports as an index alone, the volatile
+ * organic compounds and the nitrogen dioxide, has a level.
+ *
+ * @param {EndpointIdentity} identity The device the endpoint belongs to.
+ * @param {AccessoryLayout} layout How the controls of the device are laid out.
+ * @param {MatterbridgeEndpoint} [main] The main endpoint the sensor is a part of. Left out, it is a device of its own.
+ * @returns {MatterbridgeEndpoint} The endpoint, with no value until the first read.
+ */
+export function createAirQualityEndpoint(identity: EndpointIdentity, layout: AccessoryLayout, main?: MatterbridgeEndpoint): MatterbridgeEndpoint {
+  const { Ugm3, Ppm } = ConcentrationMeasurement.MeasurementUnit;
+  const air = ConcentrationMeasurement.MeasurementMedium.Air;
+  const { pollutants } = layout;
+  const endpoint = createSideEndpoint(airQualitySensor, identity, 'air-quality', 'Q', 'Air Quality', main, false).createDefaultAirQualityClusterServer(
+    AirQuality.AirQualityEnum.Unknown,
+  );
+  if (pollutants.pm25) endpoint.createDefaultPm25ConcentrationMeasurementClusterServer(null, Ugm3, air);
+  if (pollutants.pm10) endpoint.createDefaultPm10ConcentrationMeasurementClusterServer(null, Ugm3, air);
+  if (pollutants.volatileOrganicCompounds) endpoint.createLevelTvocMeasurementClusterServer(ConcentrationMeasurement.LevelValue.Unknown, air);
+  if (pollutants.nitrogenDioxide) {
+    const { LevelIndication, MediumLevel, CriticalLevel } = ConcentrationMeasurement.Feature;
+    endpoint.behaviors.require(NitrogenDioxideConcentrationMeasurementServer.with(LevelIndication, MediumLevel, CriticalLevel), {
+      levelValue: ConcentrationMeasurement.LevelValue.Unknown,
+      measurementMedium: air,
+    });
+  }
+  if (pollutants.formaldehyde) endpoint.createDefaultFormaldehydeConcentrationMeasurementClusterServer(null, Ugm3, air);
+  if (pollutants.carbonDioxide) endpoint.createDefaultCarbonDioxideConcentrationMeasurementClusterServer(null, Ppm, air);
+  return endpoint.addRequiredClusters();
+}
+
+/**
+ * Create the temperature sensor of a device
+ *
+ * @param {EndpointIdentity} identity The device the endpoint belongs to.
+ * @param {MatterbridgeEndpoint} [main] The main endpoint the sensor is a part of. Left out, it is a device of its own.
+ * @returns {MatterbridgeEndpoint} The endpoint, with no value until the first read.
+ */
+export function createTemperatureEndpoint(identity: EndpointIdentity, main?: MatterbridgeEndpoint): MatterbridgeEndpoint {
+  return createSideEndpoint(temperatureSensor, identity, 'temperature', 'E', 'Temperature', main, false)
+    .createDefaultTemperatureMeasurementClusterServer(null)
+    .addRequiredClusters();
+}
+
+/**
+ * Create the humidity sensor of a device
+ *
+ * @param {EndpointIdentity} identity The device the endpoint belongs to.
+ * @param {MatterbridgeEndpoint} [main] The main endpoint the sensor is a part of. Left out, it is a device of its own.
+ * @returns {MatterbridgeEndpoint} The endpoint, with no value until the first read.
+ */
+export function createHumidityEndpoint(identity: EndpointIdentity, main?: MatterbridgeEndpoint): MatterbridgeEndpoint {
+  return createSideEndpoint(humiditySensor, identity, 'humidity', 'R', 'Humidity', main, false).createDefaultRelativeHumidityMeasurementClusterServer(null).addRequiredClusters();
+}

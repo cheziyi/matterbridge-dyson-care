@@ -1,0 +1,17 @@
+{
+  "name": "matterbridge-dyson-care-frontend",
+  "version": "0.1.0",
+  "description": "Guided setup page of the Matterbridge Dyson Care plugin",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs",
+    "typecheck": "tsc --project tsconfig.json --noEmit",
+    "lint": "oxlint --disable-nested-config src"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2",
+    "oxlint": "1.86.0",
+    "typescript": "7.0.2"
+  }
+}
