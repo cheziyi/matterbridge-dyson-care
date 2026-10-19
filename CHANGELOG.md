@@ -4,6 +4,22 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- [docs]: Add screenshots of the guided setup, a comparison with the other Dyson plugins, and bring the README up to date with the code.
+- [dev]: Add `npm run screenshots`, which takes the screenshots of the README from the setup page in front of simulated machines.
+
+### Changed
+
+- [devices]: Leave whether a machine that is off turns on to dyson-control, which turns it on with nearly every control, as the MyDyson app does. The plugin no longer sends the power off with every control but the power, a fan speed or the auto mode, the heating, the humidifying and find and follow, and a setpoint turns the heating on and the auto humidifying the humidifying, as in the app.
+- [setup]: Call the Dyson app the MyDyson app, as Dyson names it, in the setup page and the README.
+
+### Fixed
+
+- [setup]: Show the descriptions of the auto mode choices in the Options step in the same weight as every other choice, not bold.
+
 ## [0.1.0] - 2026-10-20
 
 ### Added
