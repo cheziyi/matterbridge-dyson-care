@@ -45,10 +45,10 @@ export const FAN_AUTO_CONTROLS = ['native', 'switch', 'firstStep', 'lastStep'] a
 export type FanAutoControlOption = (typeof FAN_AUTO_CONTROLS)[number];
 
 /**
- * How the oscillation is exposed to Matter: natively, as the left and right rocking of the fan control, alone or with an
- * on/off switch or a mode select of the angles the machine sweeps beside it. The switch and the select are for apps
- * that show no rocking, and an app that does not show it leaves it out, so it is never hidden. The oscillation of a
- * machine that tilts is its breeze, which rocks it up and down, and its select picks the angle it tilts to.
+ * How the oscillation is exposed to Matter: natively, as the left and right rocking of the fan control, or as an on/off
+ * switch or a mode select of the angles the machine sweeps in place of the rocking. Unlike the other places on the fan
+ * control, the rocking does not stay beside a switch: Apple Home mishandles it. The oscillation of a machine that tilts
+ * is its breeze, which rocks it up and down, and its select picks the angle it tilts to.
  */
 export const OSCILLATION_CONTROLS = ['native', 'switch', 'select'] as const;
 

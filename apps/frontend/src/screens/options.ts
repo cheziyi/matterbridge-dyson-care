@@ -168,9 +168,9 @@ function tiltSection(draft: Draft): HTMLElement {
   return radioSection(
     'Tilt',
     'The machine tilts to 0°, 25° or 50°, or breezes: it tilts up and down. Tilting turns the machine on in the Dyson app, but not from Matter: a machine that is off stays off.',
-    radio('oscillation', 'native', draft.oscillationControl, 'On the fan only', `The up and down rocking of the fan control, as Matter has it: on breezes, off goes back to the angle it was tilted to. ${fanFeatureSupport}`, pick),
-    radio('oscillation', 'switch', draft.oscillationControl, 'A switch', `${placement(draft, 'Oscillation', true)}. On breezes, off goes back to the angle it was tilted to. The rocking of the fan control stays as well.`, pick),
-    radio('oscillation', 'select', draft.oscillationControl, 'A mode select', `${placement(draft, 'Tilt', true)}, and picks 0°, 25°, 50° or breeze. The rocking of the fan control stays as well. ${selectSupport}`, pick),
+    radio('oscillation', 'native', draft.oscillationControl, 'On the fan', `The up and down rocking of the fan control, as Matter has it: on breezes, off goes back to the angle it was tilted to. ${fanFeatureSupport}`, pick),
+    radio('oscillation', 'switch', draft.oscillationControl, 'A switch', `${placement(draft, 'Oscillation', true)}. On breezes, off goes back to the angle it was tilted to. It takes the place of the rocking of the fan control, which Apple Home mishandles.`, pick),
+    radio('oscillation', 'select', draft.oscillationControl, 'A mode select', `${placement(draft, 'Tilt', true)}, and picks 0°, 25°, 50° or breeze. It takes the place of the rocking of the fan control, which Apple Home mishandles. ${selectSupport}`, pick),
   );
 }
 
@@ -183,9 +183,9 @@ function oscillationSection(draft: Draft, controls: AvailableControls): Child {
   return radioSection(
     'Oscillation',
     '',
-    radio('oscillation', 'native', current, 'On the fan only', `The left and right rocking of the fan control, as Matter has it. ${fanFeatureSupport}`, pick),
-    radio('oscillation', 'switch', current, 'A switch', `${placement(draft, 'Oscillation', true)}. On sweeps the angle set in the Dyson app. The rocking of the fan control stays as well.`, pick),
-    hasSelect ? radio('oscillation', 'select', current, 'A mode select', `${placement(draft, 'Oscillation', true)}, and picks off or one of ${listAngles(controls.oscillationAngles)}. The rocking of the fan control stays as well. ${selectSupport}`, pick) : null,
+    radio('oscillation', 'native', current, 'On the fan', `The left and right rocking of the fan control, as Matter has it. ${fanFeatureSupport}`, pick),
+    radio('oscillation', 'switch', current, 'A switch', `${placement(draft, 'Oscillation', true)}. On sweeps the angle set in the Dyson app. It takes the place of the rocking of the fan control, which Apple Home mishandles.`, pick),
+    hasSelect ? radio('oscillation', 'select', current, 'A mode select', `${placement(draft, 'Oscillation', true)}, and picks off or one of ${listAngles(controls.oscillationAngles)}. It takes the place of the rocking of the fan control, which Apple Home mishandles. ${selectSupport}`, pick) : null,
   );
 }
 

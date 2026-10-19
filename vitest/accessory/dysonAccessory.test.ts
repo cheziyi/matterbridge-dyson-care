@@ -377,8 +377,8 @@ describe('DysonAccessory', () => {
       await writeAsController(accessory.continuousMonitoringSwitch, 'OnOff', 'onOff', false);
       await accessory.flushCommands();
       expect(client.setState).toHaveBeenCalledWith({ nightMode: true, fanAirDirection: 'backward', continuousMonitoring: false });
-      // The rocking and the airflow direction stay beside the oscillation select and the airflow switch.
-      expect(accessory.endpoint.getAttribute('FanControl', 'rockSupport')).toEqual({ rockLeftRight: true, rockUpDown: false, rockRound: false });
+      // The airflow direction stays beside its switch, but the oscillation select takes the place of the rocking.
+      expect(accessory.endpoint.getAttribute('FanControl', 'rockSupport')).toBeUndefined();
       expect(accessory.endpoint.getAttribute('FanControl', 'airflowDirection')).toBe(FanControl.AirflowDirection.Reverse);
       await writeAsController(accessory.endpoint, 'FanControl', 'airflowDirection', FanControl.AirflowDirection.Forward);
       await accessory.flushCommands();
@@ -818,8 +818,8 @@ describe('DysonAccessory', () => {
       await withSwitch.flushCommands();
       expect(switchClient.setState).toHaveBeenLastCalledWith({ tiltAngleInDegrees: 'breeze' });
       expect(withSwitch.oscillationSwitch?.getAttribute(OnOff, 'onOff')).toBe(true);
-      // The up and down rocking stays beside the switch, and follows it.
-      expect(withSwitch.endpoint.getAttribute(FanControl, 'rockSetting')).toEqual({ rockLeftRight: false, rockUpDown: true, rockRound: false });
+      // The switch takes the place of the up and down rocking.
+      expect(withSwitch.endpoint.getAttribute(FanControl, 'rockSupport')).toBeUndefined();
       await withSwitch.dispose();
 
       const selected = { ...bigQuiet, serialNumber: 'NK6-EU-MHA0053A' };

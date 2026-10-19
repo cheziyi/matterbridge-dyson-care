@@ -124,8 +124,8 @@ export function getAccessoryLayout(config: DysonDeviceConfig, capabilities: Envi
     hasFanAuto: controls.hasAutoMode && !hasAutoStep,
     hasFanAutoStep: hasAutoStep,
     hasFanAutoSwitch: controls.hasAutoMode && config.fanAutoControl === 'switch',
-    // A switch or a select is an endpoint of its own beside the rocking, as one for the auto mode is beside the fan mode Auto.
-    hasRocking: oscillation !== 'hidden',
+    // A switch or a select takes the place of the rocking, which Apple Home mishandles.
+    hasRocking: oscillation === 'native',
     isTilt,
     // An oscillation select without angles to pick from would be a switch, so it is one.
     hasOscillationSwitch: oscillation === 'switch' || (oscillation === 'select' && !hasOscillationSelect && !hasTiltSelect),

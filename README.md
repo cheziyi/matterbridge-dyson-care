@@ -72,7 +72,7 @@ Afterwards the same page lists your machines with their status: online, connecti
 | More controls     | Switches or mode selects for the child lock, the UV light and the like, on a machine that has them: see [More controls](#more-controls) |
 | Readings          | An air quality sensor, a temperature sensor and a humidity sensor, each once the machine gives its reading: see [Readings](#readings)   |
 
-A switch or a mode select is for the Matter apps that do not show a control in its place on the fan control: it comes beside that place, never in place of it, so the place stays for the apps that show it. A control that has a place on the fan control is never hidden, because an app that does not show the place leaves it out.
+A switch or a mode select is for the Matter apps that do not show a control in its place on the fan control: it comes beside that place, never in place of it, so the place stays for the apps that show it. A control that has a place on the fan control is never hidden, because an app that does not show the place leaves it out. The oscillation is the one exception: its switch or its select takes the place of the rocking, because Apple Home mishandles the rocking.
 
 ### How it is built in Matter
 
@@ -150,9 +150,9 @@ A step takes the place of the Auto fan mode, because in that mode Matter holds n
 
 | Option        | In Matter                                                                                                                                                                            |
 | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| On the fan    | The left and right rocking of the fan control alone, as Matter has it. Not every app shows it                                                                                        |
-| A switch      | A switch named `<name> Oscillation`, and the rocking as well. On sweeps the angle set in the Dyson app                                                                               |
-| A mode select | A mode select named `<name> Oscillation`, and the rocking as well, with Off and the angles the machine sweeps: see below. Few Matter apps show it: see [Mode selects](#mode-selects) |
+| On the fan    | The left and right rocking of the fan control, as Matter has it. Not every app shows it                                                                                              |
+| A switch      | A switch named `<name> Oscillation`, in place of the rocking. On sweeps the angle set in the Dyson app                                                                               |
+| A mode select | A mode select named `<name> Oscillation`, in place of the rocking, with Off and the angles the machine sweeps: see below. Few Matter apps show it: see [Mode selects](#mode-selects) |
 
 The mode select offers what the machine takes:
 
@@ -173,8 +173,8 @@ The Big+Quiet tilts in place of oscillating: to 0°, 25° or 50°, or back and f
 | Option        | In Matter                                                                                                                                       |
 | ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
 | On the fan    | The up and down rocking of the fan control. On breezes, and off tilts the machine back to the angle it was at, or to 0°. Not every app shows it |
-| A switch      | A switch named `<name> Oscillation`, and the rocking as well, which breezes the same way                                                        |
-| A mode select | A mode select named `<name> Tilt`, and the rocking as well, with 0°, 25°, 50° and Breeze                                                        |
+| A switch      | A switch named `<name> Oscillation`, in place of the rocking, which breezes the same way                                                        |
+| A mode select | A mode select named `<name> Tilt`, in place of the rocking, with 0°, 25°, 50° and Breeze                                                        |
 
 A tilt turns the machine on when the Dyson app sets it. From Matter it leaves a machine that is off as it is: see [Power](#power).
 
@@ -294,7 +294,7 @@ In the Options step, a preset fills in every choice above for what the machine c
 
 Find and follow is a switch in the Apple Home and Google Home presets and a mode select in the Full Matter support preset. Every preset adds the switches for the jet focus, the indirect airflow, the UV light and the ioniser, and the Full Matter support preset alone the controls of what is set once rather than used every day: the child lock, the air quality target, the wick drying and the water hardness.
 
-Every preset makes a machine that measures the air an air purifier, and one that does not a fan. Apple Home and Google Home are not known to show the rocking, the sleep wind or the airflow direction of a fan control, which is why their presets add switches for the oscillation and the night mode. The airflow direction, set once rather than used every day, stays on the fan control alone. The Google Home preset adds a switch for the auto mode as well, and the Apple Home preset leaves the auto mode on the fan control alone. The switches come beside the places on the fan control, which stay for the apps that show them. This has not been tested with this plugin.
+Every preset makes a machine that measures the air an air purifier, and one that does not a fan. Apple Home and Google Home are not known to show the rocking, the sleep wind or the airflow direction of a fan control, which is why their presets add switches for the oscillation and the night mode. The airflow direction, set once rather than used every day, stays on the fan control alone. The Google Home preset adds a switch for the auto mode as well, and the Apple Home preset leaves the auto mode on the fan control alone. The switches of the night mode come beside the sleep wind, which stays for the apps that show it, and the switch of the oscillation takes the place of the rocking, which Apple Home mishandles. This has not been tested with this plugin.
 
 ### One device or several
 
