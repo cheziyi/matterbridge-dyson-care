@@ -33,7 +33,7 @@ import type {
 } from 'dyson-control';
 import type { MatterbridgeEndpoint } from 'matterbridge';
 import type { AnsiLogger } from 'matterbridge/logger';
-import type { ActionContext } from 'matterbridge/matter';
+import { type ActionContext, Node } from 'matterbridge/matter';
 import { BridgedDeviceBasicInformation, FanControl, ModeSelect, OnOff, Thermostat, ThermostatUserInterfaceConfiguration } from 'matterbridge/matter/clusters';
 
 import type { DysonDeviceConfig, SettingControlKey } from '../config.js';
@@ -203,6 +203,8 @@ export class DysonAccessory implements AccessoryEndpoints {
   private queue: Promise<void> = Promise.resolve();
   // What is subscribed on each endpoint, to subscribe it again after a factory reset of the Matter node.
   private readonly subscriptions = new Map<MatterbridgeEndpoint, (() => void)[]>();
+  // Whether a read waits for the Matter node to be online, which the endpoints are written to only while it is.
+  private isAwaitingOnline = false;
 
   /**
    * Create the endpoints of a device from what its machine takes and how it is configured
@@ -437,8 +439,10 @@ export class DysonAccessory implements AccessoryEndpoints {
    * client is not connected
    *
    * A read that fails is logged, never thrown: after two failures in a row the endpoints are reported as unreachable.
+   * While the Matter node is offline, such as during a factory reset or before the bridge has started, the machine is
+   * not read: it is read once the node is online.
    *
-   * @returns {Promise<boolean>} True when the machine answered.
+   * @returns {Promise<boolean>} True when the machine answered. False when it did not, or the node is offline.
    */
   async refresh(): Promise<boolean> {
     return this.enqueue(async () => this.readAndApply(true));
@@ -604,9 +608,59 @@ export class DysonAccessory implements AccessoryEndpoints {
       wasReset = false;
       for (const again of subscriptions) again();
       if (endpoint === this.endpoint) this.log.info(`"${this.name}" is subscribed again after the Matter node was reset`);
-      // The reset put every attribute back to its default, and the endpoints come back one by one: the state of the
-      // machine replaces the defaults of each as it comes back, and does nothing once the device is disposed.
+      // The reset put every attribute back to its default: the state of the machine replaces them once the node is online.
       void this.refresh();
+    });
+  }
+
+  /**
+   * The Matter node the endpoints are in while it is offline, which they are written to only while it is online
+   *
+   * As the node goes online, the thermostat writes its temperature in a way that cannot wait for a write of the plugin,
+   * and the node fails to start when one holds the thermostat then: after a factory reset, which takes the node offline
+   * and brings it back, and when the bridge starts. Endpoints that are in no node yet are written to as they are.
+   * The node stays theirs through a factory reset.
+   *
+   * @returns {Node | undefined} The node while it is offline. Undefined while it is online, or the endpoints are in no node.
+   */
+  private getOfflineNode(): Node | undefined {
+    let root = this.endpoint.owner;
+    while (root?.owner !== undefined) root = root.owner;
+    return root instanceof Node && !root.lifecycle.isOnline ? root : undefined;
+  }
+
+  /**
+   * Tell whether the endpoints wait for the Matter node to be online, and read the machine once it is
+   *
+   * @returns {boolean} True while the node is offline, when nothing is to be written to the endpoints.
+   */
+  private isWaitingForNode(): boolean {
+    const node = this.getOfflineNode();
+    if (node === undefined) return false;
+    this.refreshWhenOnline(node);
+    return true;
+  }
+
+  /**
+   * Read the machine once the node is online, and write its state to the endpoints then
+   *
+   * A device signed out meanwhile is shown as unreachable instead, since it reads nothing.
+   *
+   * @param {Node} node The node the endpoints are in, while it is offline.
+   * @returns {void}
+   */
+  private refreshWhenOnline(node: Node): void {
+    if (this.isAwaitingOnline) return;
+    this.isAwaitingOnline = true;
+    // The read is not awaited, so that the node goes online without waiting for the machine. It does nothing once the
+    // device is disposed.
+    node.lifecycle.online.once(() => {
+      this.isAwaitingOnline = false;
+      void this.enqueue(async () => {
+        if (this.isDisposed) return;
+        if (this.isSuspended) await this.setReachableQuietly(false);
+        else await this.readAndApply(true);
+      });
     });
   }
 
@@ -756,10 +810,10 @@ export class DysonAccessory implements AccessoryEndpoints {
    * Read the machine and write what it holds to Matter
    *
    * @param {boolean} shouldReadSensors Whether to read the sensors too, instead of keeping the readings of the last poll.
-   * @returns {Promise<boolean>} True when the machine answered.
+   * @returns {Promise<boolean>} True when the machine answered. False when it did not, or the node is offline and it was not read.
    */
   private async readAndApply(shouldReadSensors: boolean): Promise<boolean> {
-    if (this.isDisposed || this.isSuspended) return false;
+    if (this.isDisposed || this.isSuspended || this.isWaitingForNode()) return false;
     let state: EnvironmentalCareState;
     let sensors = this.sensors;
     try {
@@ -821,10 +875,12 @@ export class DysonAccessory implements AccessoryEndpoints {
     });
   }
 
+  // While the node is offline the readings are kept, and the read once it is online writes them.
   private receiveSensors(sensors: EnvironmentalCareSensors): void {
     void this.enqueue(async () => {
       if (this.isDisposed) return;
       this.sensors = sensors;
+      if (this.isWaitingForNode()) return;
       try {
         await applySensors(this, this.layout, sensors);
       } catch (error) {
@@ -837,8 +893,9 @@ export class DysonAccessory implements AccessoryEndpoints {
     this.state = state;
     if (state.fanSpeed !== null && state.autoMode !== true) this.lastManualFanSpeed = state.fanSpeed;
     if (state.tiltAngleInDegrees !== null && state.tiltAngleInDegrees !== 'breeze') this.lastTiltAngle = state.tiltAngleInDegrees;
-    // A controller wrote meanwhile: the command about to be sent reads these attributes.
-    if (this.hasPendingCommand) return;
+    // A controller wrote meanwhile: the command about to be sent reads these attributes. While the node is offline, the
+    // state is kept and the read once it is online writes it.
+    if (this.hasPendingCommand || this.isWaitingForNode()) return;
     try {
       await this.setReachable(true);
       if (this.sensors !== undefined) await applySensors(this, this.layout, this.sensors);
@@ -870,7 +927,9 @@ export class DysonAccessory implements AccessoryEndpoints {
     void this.enqueue(async () => this.setReachableQuietly(false));
   }
 
+  // While the node is offline, the read once it is online tells whether the machine is reachable.
   private async setReachableQuietly(isReachable: boolean): Promise<void> {
+    if (this.isWaitingForNode()) return;
     try {
       await this.setReachable(isReachable);
     } catch (error) {

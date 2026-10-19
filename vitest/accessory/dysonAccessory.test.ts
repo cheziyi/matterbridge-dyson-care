@@ -660,6 +660,17 @@ describe('DysonAccessory', () => {
     });
   });
 
+  describe('a device whose endpoints are in no Matter node yet', () => {
+    it('should read the machine at once', async () => {
+      const client = createFakeClient(purifierCool);
+      const accessory = new DysonAccessory({ config: createDeviceConfig(purifierCool, { name: 'Annex' }), createClient: factoryOf(client), log, vendorId });
+      // There is no node to wait for.
+      expect(await accessory.refresh()).toBe(true);
+      expect(client.getState).toHaveBeenCalledOnce();
+      await accessory.dispose();
+    });
+  });
+
   describe('a heater with a heat switch', () => {
     it('should heat with its switch, and ignore a thermostat mode it does not have', async () => {
       const machine = { ...hotCool, serialNumber: 'NK6-EU-MHA0022A' };
