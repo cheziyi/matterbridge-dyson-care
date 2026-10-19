@@ -116,5 +116,6 @@
     "git show": true,
     "git branch -vv": true,
     "git ls-files": true
-  }
+  },
+  "cSpell.words": ["Dyson", "Matterbridge"]
 }

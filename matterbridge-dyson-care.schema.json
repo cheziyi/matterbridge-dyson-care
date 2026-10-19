@@ -1,6 +1,6 @@
 {
-  "title": "Matterbridge plugin template",
-  "description": "matterbridge-plugin-template v. 2.1.4 by https://github.com/Luligu",
+  "title": "Matterbridge Dyson Care",
+  "description": "matterbridge-dyson-care by https://github.com/cheziyi. Your Dyson account and machines are set up in the guided setup: open the plugin frontend from the plugin's row on the home page.",
   "type": "object",
   "properties": {
     "name": {
@@ -17,25 +17,13 @@
       "readOnly": true,
       "ui:widget": "hidden"
     },
-    "whiteList": {
-      "title": "White List",
-      "description": "Only the devices in the list will be exposed. If the list is empty, all the devices will be exposed.",
-      "type": "array",
-      "items": {
-        "type": "string"
-      },
-      "uniqueItems": true,
-      "selectFrom": "name"
-    },
-    "blackList": {
-      "title": "Black List",
-      "description": "The devices in the list will not be exposed. If the list is empty, no devices will be excluded.",
-      "type": "array",
-      "items": {
-        "type": "string"
-      },
-      "uniqueItems": true,
-      "selectFrom": "name"
+    "pollIntervalInSeconds": {
+      "title": "Poll Interval",
+      "description": "How often, in seconds, the state and the readings of each machine are read (10 to 3600). A machine sends a change of its state by itself, so this mostly sets how fresh the air quality readings are, and how soon a machine that is unplugged shows as unreachable.",
+      "type": "integer",
+      "minimum": 10,
+      "maximum": 3600,
+      "default": 30
     },
     "debug": {
       "title": "Enable Debug",
