@@ -23,7 +23,7 @@ function statusPanel(draft: Draft): Child {
     );
   }
   if (status === 'unreachable') {
-    return h('p', { class: 'notice problem', role: 'alert' }, `${label} did not answer. Check that it is plugged in and shows as online in the Dyson app, then try again.`);
+    return h('p', { class: 'notice problem', role: 'alert' }, `${label} did not answer. Check that it is plugged in and shows as online in the MyDyson app, then try again.`);
   }
   if (status === 'unsupported') return h('p', { class: 'notice problem', role: 'alert' }, `The plugin cannot control ${label}: ${draft.probe?.message ?? 'unknown'}`);
   if (status === 'failed') return h('p', { class: 'notice problem', role: 'alert' }, `${label} answered with an error: ${draft.probe?.message ?? 'unknown'}`);

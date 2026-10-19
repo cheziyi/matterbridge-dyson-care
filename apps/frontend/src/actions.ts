@@ -56,7 +56,7 @@ export async function loadState(): Promise<void> {
 }
 
 /**
- * Read the machine list of the account again behind the page as it opens, so that what changed in the Dyson app since
+ * Read the machine list of the account again behind the page as it opens, so that what changed in the MyDyson app since
  * the last read, such as a room name, shows without waiting for the next one. The page is redrawn only when the state
  * changed: a redraw for nothing could land between a press and its click, and lose the click.
  */

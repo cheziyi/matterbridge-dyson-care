@@ -278,7 +278,8 @@ input[type='checkbox'] {
   gap: 0.4rem;
 }
 
-.field label {
+/* The label of the field alone, not that of each choice in it. */
+.field > label {
   font-weight: 500;
 }
 

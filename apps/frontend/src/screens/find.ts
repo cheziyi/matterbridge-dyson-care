@@ -67,7 +67,7 @@ export function findScreen(): Child[] {
     notice(),
     view.machines.length > 0 ? h('ul', { class: 'found-list' }, ...view.machines.map(machineRow)) : null,
     !view.isBusy && view.machines.length === 0 && view.error === ''
-      ? h('p', { class: 'empty' }, 'Your Dyson account has no machine yet. Add your machines in the Dyson app, then read the list again.')
+      ? h('p', { class: 'empty' }, 'Your Dyson account has no machine yet. Add your machines in the MyDyson app, then read the list again.')
       : null,
     h(
       'div',

@@ -55,7 +55,7 @@ export const heatTargetRange = { min: 1, max: 37 } as const;
 /** The room temperature a thermostat shows until the machine gives one, in °C: Matter wants one at the start. */
 export const defaultHeatTargetInC = 21;
 
-/** The target humidities a humidifier takes in the Dyson app, in percent. */
+/** The target humidities a humidifier takes in the MyDyson app, in percent. */
 export const humidityTargets = [30, 40, 50, 60, 70] as const;
 
 export type HumidityTarget = (typeof humidityTargets)[number];
@@ -363,7 +363,7 @@ export function indexToAirQuality(index: number): AirQuality.AirQualityEnum {
 /**
  * Work out the air quality of a machine's readings
  *
- * The air is as clean as its worst pollutant, as the Dyson app shows it.
+ * The air is as clean as its worst pollutant, as the MyDyson app shows it.
  *
  * Edge cases:
  *  - no index reported -> unknown

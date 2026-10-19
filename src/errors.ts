@@ -73,7 +73,7 @@ export function describeSignInFailure(error: unknown, step: SignInStep): string 
   if (status === 429) reason = 'Dyson was asked for this moments ago: wait a minute, then try again';
   else if (status === 503 || status === 504) reason = 'The Dyson cloud did not answer: check that Matterbridge reaches the internet, then try again';
   else if (status >= 400 && status < 500 && step === 'code') {
-    reason = 'Dyson refused the address: check that it is the email address you sign in to the Dyson app with. An account that signs in with a mobile number is not supported';
+    reason = 'Dyson refused the address: check that it is the email address you sign in to the MyDyson app with. An account that signs in with a mobile number is not supported';
   } else if (status >= 400 && status < 500) reason = 'Dyson did not accept the password or the code: check both, or ask for a new code';
   return `${reason} (HTTP ${status})`;
 }
