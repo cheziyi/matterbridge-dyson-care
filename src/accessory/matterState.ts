@@ -30,7 +30,10 @@ import {
   clampHeatTarget,
   type FanPosition,
   fanStepToPercent,
+  filterHoursToPercent,
+  findAndFollowSelectChoices,
   getAirQuality,
+  getFilterChangeIndication,
   getNearestHumidityTarget,
   getSweep,
   humiditySelectChoices,
@@ -41,8 +44,11 @@ import {
   type OscillationSelectValue,
   percentToFanStep,
   type SelectChoices,
+  tiltSelectChoices,
+  toFilterCondition,
   toMatterHumidity,
   toMatterTemperature,
+  waterHardnessSelectChoices,
 } from '../mapping.js';
 import type { AccessoryLayout } from './layout.js';
 
@@ -53,6 +59,10 @@ export interface AccessoryEndpoints {
   readonly fanAutoSwitch: MatterbridgeEndpoint | undefined;
   readonly oscillationSwitch: MatterbridgeEndpoint | undefined;
   readonly oscillationSelect: MatterbridgeEndpoint | undefined;
+  readonly tiltSelect: MatterbridgeEndpoint | undefined;
+  readonly findAndFollowSwitch: MatterbridgeEndpoint | undefined;
+  readonly findAndFollowSelect: MatterbridgeEndpoint | undefined;
+  readonly waterHardnessSelect: MatterbridgeEndpoint | undefined;
   readonly nightModeSwitch: MatterbridgeEndpoint | undefined;
   readonly airflowDirectionSwitch: MatterbridgeEndpoint | undefined;
   readonly thermostat: MatterbridgeEndpoint | undefined;
@@ -118,6 +128,17 @@ async function applyFan(endpoint: MatterbridgeEndpoint, layout: AccessoryLayout,
 }
 
 /**
+ * Tell whether a machine oscillates: for a machine that tilts, whether it breezes
+ *
+ * @param {AccessoryLayout} layout How the controls of the device are laid out.
+ * @param {EnvironmentalCareState} state The state of the machine.
+ * @returns {boolean} True while it oscillates.
+ */
+function isMachineOscillating(layout: AccessoryLayout, state: EnvironmentalCareState): boolean {
+  return layout.isTilt ? state.tiltAngleInDegrees === 'breeze' : isOscillating(state.oscillationMode);
+}
+
+/**
  * Write the controls of a machine that are features of its fan control
  *
  * @param {MatterbridgeEndpoint} endpoint The main endpoint.
@@ -126,12 +147,61 @@ async function applyFan(endpoint: MatterbridgeEndpoint, layout: AccessoryLayout,
  * @returns {Promise<void>} Resolves when the features are written.
  */
 async function applyFanFeatures(endpoint: MatterbridgeEndpoint, layout: AccessoryLayout, state: EnvironmentalCareState): Promise<void> {
-  if (layout.hasRocking) await endpoint.updateAttribute('FanControl', 'rockSetting', { rockLeftRight: isOscillating(state.oscillationMode), rockUpDown: false, rockRound: false });
+  if (layout.hasRocking) {
+    const isOn = isMachineOscillating(layout, state);
+    await endpoint.updateAttribute('FanControl', 'rockSetting', { rockLeftRight: isOn && !layout.isTilt, rockUpDown: isOn && layout.isTilt, rockRound: false });
+  }
   if (layout.hasSleepWind) await endpoint.updateAttribute('FanControl', 'windSetting', { sleepWind: state.nightMode === true, naturalWind: false });
   if (layout.hasAirflowDirection && state.fanAirDirection !== null) {
     const direction = state.fanAirDirection === 'forward' ? FanControl.AirflowDirection.Forward : FanControl.AirflowDirection.Reverse;
     await endpoint.updateAttribute('FanControl', 'airflowDirection', direction);
   }
+}
+
+/**
+ * Write the life left in one filter to its filter monitoring
+ *
+ * Edge cases:
+ *  - a life the machine does not report leaves the condition as it was
+ *  - a filter type of `none` is a filter that is not fitted
+ *
+ * @param {MatterbridgeEndpoint} endpoint The main endpoint.
+ * @param {string} cluster The filter monitoring of the filter.
+ * @param {number | null} percent The life left in the filter, in percent.
+ * @param {string | null} type The type of the filter the machine reports.
+ * @returns {Promise<void>} Resolves when the filter monitoring is written.
+ */
+async function applyFilter(
+  endpoint: MatterbridgeEndpoint,
+  cluster: 'HepaFilterMonitoring' | 'ActivatedCarbonFilterMonitoring',
+  percent: number | null,
+  type: string | null,
+): Promise<void> {
+  if (percent !== null) {
+    const condition = toFilterCondition(percent);
+    await endpoint.updateAttribute(cluster, 'condition', condition);
+    await endpoint.updateAttribute(cluster, 'changeIndication', getFilterChangeIndication(condition));
+  }
+  if (type !== null) await endpoint.updateAttribute(cluster, 'inPlaceIndicator', type !== 'none');
+}
+
+/**
+ * Write the life left in the filters of a machine to the filter monitoring of its air purifier
+ *
+ * The HEPA filter is the outer filter, or the one filter of a machine of the first generation, and the activated carbon
+ * filter the inner one.
+ *
+ * @param {MatterbridgeEndpoint} endpoint The main endpoint.
+ * @param {AccessoryLayout} layout How the controls of the device are laid out.
+ * @param {EnvironmentalCareState} state The state of the machine.
+ * @returns {Promise<void>} Resolves when the filters are written.
+ */
+async function applyFilters(endpoint: MatterbridgeEndpoint, layout: AccessoryLayout, state: EnvironmentalCareState): Promise<void> {
+  if (layout.hasHepaFilter) {
+    const hours = state.filterLifeInHours;
+    await applyFilter(endpoint, 'HepaFilterMonitoring', state.outerFilterLifeInPercent ?? (hours === null ? null : filterHoursToPercent(hours)), state.outerFilterType);
+  }
+  if (layout.hasCarbonFilter) await applyFilter(endpoint, 'ActivatedCarbonFilterMonitoring', state.innerFilterLifeInPercent, state.innerFilterType);
 }
 
 /**
@@ -268,8 +338,10 @@ export async function applyState(endpoints: AccessoryEndpoints, layout: Accessor
   await endpoint.updateAttribute(OnOff, 'onOff', state.fanPower);
   await applyFan(endpoint, layout, state);
   await applyFanFeatures(endpoint, layout, state);
+  await applyFilters(endpoint, layout, state);
   await applySwitch(endpoints.fanAutoSwitch, state.autoMode === true);
-  await applySwitch(endpoints.oscillationSwitch, isOscillating(state.oscillationMode));
+  await applySwitch(endpoints.oscillationSwitch, isMachineOscillating(layout, state));
+  await applySwitch(endpoints.findAndFollowSwitch, state.findAndFollowMode !== null && state.findAndFollowMode !== 'off');
   await applySwitch(endpoints.nightModeSwitch, state.nightMode === true);
   await applySwitch(endpoints.airflowDirectionSwitch, state.fanAirDirection === 'forward');
   // The heating and the humidifying run only while the machine is on.
@@ -280,4 +352,7 @@ export async function applyState(endpoints: AccessoryEndpoints, layout: Accessor
   if (endpoints.thermostat !== undefined) await applyThermostat(endpoints.thermostat, state, roomTemperatureInC);
   await applySelect(endpoints.oscillationSelect, oscillationSelectChoices, layout.oscillationSelectValues, getOscillationSelectValue(layout, state));
   await applySelect(endpoints.humiditySelect, humiditySelectChoices, layout.humiditySelectValues, getHumiditySelectValue(state));
+  await applySelect(endpoints.tiltSelect, tiltSelectChoices, layout.tiltSelectValues, state.tiltAngleInDegrees ?? undefined);
+  await applySelect(endpoints.findAndFollowSelect, findAndFollowSelectChoices, layout.findAndFollowSelectValues, state.findAndFollowMode ?? undefined);
+  await applySelect(endpoints.waterHardnessSelect, waterHardnessSelectChoices, layout.waterHardnessSelectValues, state.waterHardness ?? undefined);
 }

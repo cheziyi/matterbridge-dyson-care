@@ -24,7 +24,10 @@ export function render(): void {
   // Keep what the user is typing when the same form redraws around it, and never carry it over to another form.
   const form = `${view.screen}:${currentDraft()?.machine.serialNumber ?? ''}`;
   const isSameForm = root.dataset.form === form;
-  const activeId = document.activeElement instanceof HTMLElement ? document.activeElement.id : '';
+  const active = document.activeElement;
+  const activeId = active instanceof HTMLElement ? active.id : '';
+  // Where the caret is in the field being typed in, so that a redraw while typing does not move it to the end.
+  const caret = active instanceof HTMLInputElement && (active.type === 'text' || active.type === 'password') ? { start: active.selectionStart, end: active.selectionEnd } : undefined;
   const typed = new Map<string, string>();
   for (const input of root.querySelectorAll<HTMLInputElement>('input[type=text], input[type=email], input[type=password]')) {
     if (input.id !== '') typed.set(input.id, input.value);
@@ -36,5 +39,8 @@ export function render(): void {
     const input = document.getElementById(id);
     if (input instanceof HTMLInputElement) input.value = value;
   }
-  if (activeId !== '') document.getElementById(activeId)?.focus();
+  if (activeId === '') return;
+  const focused = document.getElementById(activeId);
+  focused?.focus();
+  if (caret !== undefined && focused instanceof HTMLInputElement) focused.setSelectionRange(caret.start, caret.end);
 }

@@ -29,9 +29,9 @@ import { type DysonDeviceConfig, hasSameMachine } from '../config.js';
 /**
  * Work out what the machine list of the account changes about a stored device
  *
- * A device is matched by the serial number of its machine, and takes the variant and the firmware the cloud reports
- * for it now. It keeps its own name: the name the cloud reports is the room name of the Dyson app, which several
- * machines can share.
+ * A device is matched by the serial number of its machine, and takes the variant, the firmware and the room name the
+ * cloud reports for it now. It keeps its own name: the room name is that of the Dyson app, which several machines can
+ * share.
  *
  * Edge cases:
  *  - a machine of another type than the stored one -> undefined, with a warning: its state is held another way
@@ -56,6 +56,7 @@ export function getMachineUpdate(stored: DysonDeviceConfig, machines: readonly D
   // A field the cloud no longer reports is left out, as it is from a machine stored without it.
   const updated: DysonDeviceConfig = {
     ...stored,
+    roomName: match.name,
     variant: match.variant,
     mqttRootTopicLevel: match.mqttRootTopicLevel,
     model: match.model,
@@ -63,5 +64,5 @@ export function getMachineUpdate(stored: DysonDeviceConfig, machines: readonly D
     firmwareVersion: match.firmwareVersion,
     firmwareCapabilities: match.firmwareCapabilities === undefined ? undefined : [...match.firmwareCapabilities],
   };
-  return hasSameMachine(stored, updated) ? undefined : updated;
+  return hasSameMachine(stored, updated) && stored.roomName === updated.roomName ? undefined : updated;
 }

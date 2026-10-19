@@ -46,7 +46,8 @@ export type FanAutoControlOption = (typeof FAN_AUTO_CONTROLS)[number];
 
 /**
  * How the oscillation is exposed to Matter: natively, as the left and right rocking of the fan control, as an on/off
- * switch, as a mode select of the angles the machine sweeps, or not at all.
+ * switch, as a mode select of the angles the machine sweeps, or not at all. The oscillation of a machine that tilts is
+ * its breeze, which rocks it up and down, and its select picks the angle it tilts to.
  */
 export const OSCILLATION_CONTROLS = ['native', 'switch', 'select', 'hidden'] as const;
 
@@ -75,6 +76,11 @@ export const HUMIDIFICATION_CONTROLS = ['switches', 'select', 'hidden'] as const
 
 export type HumidificationControlOption = (typeof HUMIDIFICATION_CONTROLS)[number];
 
+/** How the find and follow of a machine that turns to the people it finds is exposed to Matter: as an on/off switch, as a mode select of off, follow and scan, or not at all. */
+export const FIND_AND_FOLLOW_CONTROLS = ['switch', 'select', 'hidden'] as const;
+
+export type FindAndFollowControlOption = (typeof FIND_AND_FOLLOW_CONTROLS)[number];
+
 export const defaultPollIntervalInSeconds = 30;
 export const minPollIntervalInSeconds = 10;
 export const maxPollIntervalInSeconds = 3600;
@@ -93,6 +99,9 @@ export interface DysonDeviceExposure {
   airflowDirectionControl: AirflowDirectionControlOption;
   heatControl: HeatControlOption;
   humidificationControl: HumidificationControlOption;
+  findAndFollowControl: FindAndFollowControlOption;
+  /** Whether the water hardness of a humidifier that runs a clean cycle gets a mode select, which sets how often it asks for one. */
+  hasWaterHardnessSelect: boolean;
   /** Whether the continuous monitoring, the measuring of the air while the machine is off, gets an on/off switch. */
   hasContinuousMonitoringSwitch: boolean;
   /** Whether Matter gets an air quality sensor, with each pollutant the machine gives a reading of. */
@@ -120,6 +129,11 @@ export interface DysonDeviceConfig extends DysonDeviceExposure {
    * name of the Dyson app, which several machines can share, and a new room name there does not change it.
    */
   name: string;
+  /**
+   * The room name of the machine in the Dyson app, as the machine list of the account reports it now. The setup page
+   * shows it to tell the machine apart, and Matter never sees it.
+   */
+  roomName?: string;
   /** Such as `NK6-EU-MHA0000A`. It is also the serial number of the device in Matter. */
   serialNumber: string;
   /** The cloud's code for the kind of machine, such as `438`. */
@@ -157,6 +171,8 @@ export const EXPOSURE_SETTINGS = [
   'airflowDirectionControl',
   'heatControl',
   'humidificationControl',
+  'findAndFollowControl',
+  'hasWaterHardnessSelect',
   'hasContinuousMonitoringSwitch',
   'hasAirQualitySensor',
   'hasTemperatureSensor',
@@ -174,6 +190,8 @@ export const defaultExposure: Readonly<DysonDeviceExposure> = {
   airflowDirectionControl: 'native',
   heatControl: 'thermostat',
   humidificationControl: 'select',
+  findAndFollowControl: 'hidden',
+  hasWaterHardnessSelect: false,
   hasContinuousMonitoringSwitch: false,
   hasAirQualitySensor: true,
   hasTemperatureSensor: true,
@@ -314,13 +332,15 @@ export function parseDeviceConfig(value: unknown, report?: (message: string) => 
     airflowDirectionControl: pick('airflowDirectionControl', AIRFLOW_DIRECTION_CONTROLS, fallback.airflowDirectionControl),
     heatControl: pick('heatControl', HEAT_CONTROLS, fallback.heatControl),
     humidificationControl: pick('humidificationControl', HUMIDIFICATION_CONTROLS, fallback.humidificationControl),
+    findAndFollowControl: pick('findAndFollowControl', FIND_AND_FOLLOW_CONTROLS, fallback.findAndFollowControl),
+    hasWaterHardnessSelect: flag('hasWaterHardnessSelect', fallback.hasWaterHardnessSelect),
     hasContinuousMonitoringSwitch: flag('hasContinuousMonitoringSwitch', fallback.hasContinuousMonitoringSwitch),
     hasAirQualitySensor: flag('hasAirQualitySensor', fallback.hasAirQualitySensor),
     hasTemperatureSensor: flag('hasTemperatureSensor', fallback.hasTemperatureSensor),
     hasHumiditySensor: flag('hasHumiditySensor', fallback.hasHumiditySensor),
     isComposed: flag('isComposed', fallback.isComposed),
   };
-  for (const key of ['variant', 'mqttRootTopicLevel', 'model', 'productName', 'firmwareVersion'] as const) {
+  for (const key of ['roomName', 'variant', 'mqttRootTopicLevel', 'model', 'productName', 'firmwareVersion'] as const) {
     const text = parseOptionalText(raw[key]);
     if (text !== undefined) device[key] = text;
   }
@@ -405,7 +425,7 @@ export function toDysonMachine(config: DysonDeviceConfig): DysonMachine {
  *
  * @param {DysonDeviceConfig} left One device.
  * @param {DysonDeviceConfig} right The other device.
- * @returns {boolean} True when every field the client is built from is the same, the name aside.
+ * @returns {boolean} True when every field the client is built from is the same, the names aside.
  */
 export function hasSameMachine(left: DysonDeviceConfig, right: DysonDeviceConfig): boolean {
   return (

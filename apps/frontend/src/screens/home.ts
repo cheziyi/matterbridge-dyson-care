@@ -6,7 +6,7 @@
  */
 
 import { loadState, removeDevice, search, signOut, startQueue, startSignIn } from '../actions.js';
-import type { StoredDevice } from '../api.js';
+import type { MachineReport, StoredDevice } from '../api.js';
 import { button, notice } from '../components.js';
 import { type Child, h } from '../dom.js';
 import { draftFromStored } from '../exposure.js';
@@ -19,7 +19,10 @@ const placeNames = { native: 'on the fan', switch: 'as a switch', select: 'as a 
 function describeExposure(device: StoredDevice): string {
   // What the machine cannot do is left out, whatever is stored for it. A machine the plugin cannot read now is described as stored.
   const controls = device.controls;
-  const has = (key: 'hasAutoMode' | 'hasOscillation' | 'hasAirflowDirection' | 'hasHeat' | 'hasHumidification' | 'hasAirQualitySensor'): boolean => controls === undefined || controls[key];
+  const has = (
+    key: 'hasAutoMode' | 'hasOscillation' | 'hasFindAndFollow' | 'hasAirflowDirection' | 'hasHeat' | 'hasHumidification' | 'hasWaterHardness' | 'hasFilterLife' | 'hasAirQualitySensor',
+  ): boolean => controls === undefined || controls[key];
+  const isTilt = controls !== undefined && controls.tiltAngles.length > 0;
   const kind = device.deviceType === 'airPurifier' ? 'an air purifier' : 'a fan';
   const autoStep = { native: '', switch: '', firstStep: ' with auto first', lastStep: ' with auto last' }[device.fanAutoControl];
   const parts: string[] = [`${kind} with speed ${device.fanControl === 'steps' ? 'steps' : 'as a percentage'}${has('hasAutoMode') ? autoStep : ''}`];
@@ -28,12 +31,15 @@ function describeExposure(device: StoredDevice): string {
     if (place !== '') byPlace.set(place, [...(byPlace.get(place) ?? []), name]);
   };
   if (has('hasAutoMode') && device.fanAutoControl === 'switch') add(placeNames.switch, 'the auto mode');
-  if (has('hasOscillation')) add(placeNames[device.oscillationControl], 'the oscillation');
+  if (has('hasOscillation')) add(placeNames[device.oscillationControl], isTilt ? 'the tilt' : 'the oscillation');
+  if (has('hasFindAndFollow')) add(placeNames[device.findAndFollowControl], 'the find and follow');
   add(placeNames[device.nightModeControl], 'the night mode');
   if (has('hasAirflowDirection')) add(placeNames[device.airflowDirectionControl], 'the airflow direction');
   for (const [place, names] of byPlace) parts.push(`${names.join(', ')} ${place}`);
   if (has('hasHeat') && device.heatControl !== 'hidden') parts.push(device.heatControl === 'thermostat' ? 'a thermostat' : 'a heat switch');
   if (has('hasHumidification') && device.humidificationControl !== 'hidden') parts.push(device.humidificationControl === 'select' ? 'a target humidity select' : 'humidify switches');
+  if (has('hasWaterHardness') && device.hasWaterHardnessSelect) parts.push('a water hardness select');
+  if (has('hasFilterLife') && device.deviceType === 'airPurifier') parts.push('the filter life');
   // A sensor shows only once the machine gives its reading.
   const { reportedSensors: reported } = device;
   const sensors = [
@@ -48,6 +54,46 @@ function describeExposure(device: StoredDevice): string {
   return `${list}${device.isComposed ? ', all as one device' : ''}`;
 }
 
+const filterNames = { filter: 'Filter', outerFilter: 'HEPA filter', innerFilter: 'Carbon filter' } as const;
+
+// Such as "Next clean cycle in 84 days", or nothing when the machine says nothing of its next one.
+function describeCleanCycle(cycle: NonNullable<MachineReport['cleanCycle']>): string {
+  const minutes = cycle.remainingTimeOfActiveInMinutes;
+  if (cycle.state === 'active') return minutes === null ? 'Cleaning' : `Cleaning, ${minutes} min left`;
+  if (cycle.state === 'paused') return 'Clean cycle paused';
+  if (cycle.state === 'incomplete') return 'Clean cycle not finished';
+  if (cycle.state === 'setup') return 'Clean cycle being set up';
+  const hours = cycle.remainingTimeToNextInHours;
+  if (hours === null) return '';
+  if (hours <= 0) return 'Clean cycle due';
+  return hours < 48 ? `Next clean cycle in ${hours} hours` : `Next clean cycle in ${Math.round(hours / 24)} days`;
+}
+
+// Such as "HEPA filter 85 %, Carbon filter 60 %. Next clean cycle in 84 days."
+function describeReport(report: MachineReport): string {
+  const filters = report.filters.map(({ filter, lifeInPercent }) => `${filterNames[filter]} ${lifeInPercent} %`).join(', ');
+  const cleanCycle = report.cleanCycle === undefined ? '' : describeCleanCycle(report.cleanCycle);
+  return [filters, cleanCycle]
+    .filter((text) => text !== '')
+    .map((text) => `${text}.`)
+    .join(' ');
+}
+
+// Dyson's name for a fault in words, such as "filter replacement". A code whose name is not known stays as the machine sends it.
+function faultName(fault: string): string {
+  return fault.replaceAll(/([a-z])([A-Z])/g, '$1 $2').toLowerCase();
+}
+
+function reportLines(report: MachineReport | undefined): Child[] {
+  if (report === undefined) return [];
+  const text = describeReport(report);
+  const faults = report.faults ?? [];
+  return [
+    text === '' ? null : h('p', { class: 'meta' }, text),
+    faults.length === 0 ? null : h('p', { class: 'meta problem-text' }, `The machine reports: ${faults.map(faultName).join(', ')}.`),
+  ];
+}
+
 function deviceRow(device: StoredDevice): HTMLElement {
   const statusText = { online: 'Online', connecting: 'Connecting…', offline: 'Not answering', stopped: 'Not started' }[device.status];
   const isConfirming = view.confirmingRemoval === device.serialNumber;
@@ -60,6 +106,7 @@ function deviceRow(device: StoredDevice): HTMLElement {
       { class: 'device-main' },
       h('h3', {}, device.name),
       h('p', { class: 'meta' }, h('span', { class: `status ${device.status}` }, statusText), ` ${product}, ${device.serialNumber}. In Matter: ${describeExposure(device)}.`),
+      ...reportLines(device.report),
       device.status !== 'online' && device.error ? h('p', { class: 'meta problem-text' }, device.error) : null,
     ),
     isConfirming

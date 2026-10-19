@@ -55,7 +55,7 @@ import { getMachineUpdate } from './platform/machineSync.js';
 import { SensorStore } from './platform/sensorStore.js';
 import { parseSetupRevision, SetupRevisions } from './platform/setupRevisions.js';
 import { getMachineSupport, probeMachine, type ProbeResult } from './setup/probe.js';
-import { type FoundMachine, handleSetupRequest, type SetupDevice, type SetupPlatform, type SetupState, type SignInRequest } from './setup/setupApi.js';
+import { type FoundMachine, getMachineReport, handleSetupRequest, type SetupDevice, type SetupPlatform, type SetupState, type SignInRequest } from './setup/setupApi.js';
 
 /** How often, in milliseconds, the machine list of the account is read to keep the firmware of each machine up to date. */
 export const machineSyncIntervalInMs = 15 * 60 * 1000;
@@ -235,6 +235,7 @@ export class DysonPlatform extends MatterbridgeDynamicPlatform implements SetupP
         capabilities,
         controls: capabilities === undefined ? undefined : getAvailableControls(capabilities),
         reportedSensors: (await this.sensorStore.read(device)) ?? noReportedSensors,
+        report: getMachineReport(status?.state, status?.faults),
       });
     }
     const { account } = this;
@@ -389,7 +390,7 @@ export class DysonPlatform extends MatterbridgeDynamicPlatform implements SetupP
   }
 
   /**
-   * Read the machine list of the account and store the firmware of each stored device that changed
+   * Read the machine list of the account and store the firmware and the room name of each stored device that changed
    *
    * A failed read is logged, never thrown.
    *

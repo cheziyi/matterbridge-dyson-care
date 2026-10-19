@@ -8,7 +8,7 @@
 import { check, goHome, skipDraft, startSignIn } from '../actions.js';
 import { button, notice, steps, unitHeader, unitStrip } from '../components.js';
 import { type Child, h } from '../dom.js';
-import { currentDraft, type Draft, productLabel, view } from '../state.js';
+import { currentDraft, type Draft, machineLabel, view } from '../state.js';
 
 /** What stands in the way of the machine, or what the page needs before it can go on: nothing while the check has no answer. */
 function statusPanel(draft: Draft): Child {
@@ -38,7 +38,7 @@ export function connectScreen(): Child[] {
   return [
     steps(),
     unitStrip(),
-    unitHeader(draft, `Connecting to the ${productLabel(draft.machine)} ${draft.machine.serialNumber} through the Dyson cloud.`),
+    unitHeader(draft, `Connecting to the ${machineLabel(draft.machine)} through the Dyson cloud.`),
     notice(),
     view.isBusy ? null : statusPanel(draft),
     h('div', { class: 'footer' }, canRetry ? button('Try again', () => void check(draft)) : null, button(isOneOfMany ? 'Skip this one' : 'Cancel', isOneOfMany ? skipDraft : goHome)),

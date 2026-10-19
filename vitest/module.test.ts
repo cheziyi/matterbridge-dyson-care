@@ -53,9 +53,9 @@ vi.mock('dyson-control', async (importOriginal) => {
     }
     override async connect(): Promise<void> {
       const unit = cloud.unitFor(this.serialNumber);
-      const { onState, onSensors, onReconnect, onDisconnect } = this.handlers;
-      if (onState !== undefined && onSensors !== undefined && onReconnect !== undefined && onDisconnect !== undefined)
-        unit.handlers = { onState, onSensors, onReconnect, onDisconnect };
+      const { onState, onSensors, onFaults, onReconnect, onDisconnect } = this.handlers;
+      if (onState !== undefined && onSensors !== undefined && onFaults !== undefined && onReconnect !== undefined && onDisconnect !== undefined)
+        unit.handlers = { onState, onSensors, onFaults, onReconnect, onDisconnect };
       cloud.options.set(this.serialNumber, this.handlers);
       return unit.connect();
     }
@@ -70,6 +70,9 @@ vi.mock('dyson-control', async (importOriginal) => {
     }
     override async getSensors(): Promise<never> {
       return cloud.unitFor(this.serialNumber).getSensors() as Promise<never>;
+    }
+    override async getFaults(): Promise<never> {
+      return cloud.unitFor(this.serialNumber).getFaults() as Promise<never>;
     }
   }
   return { ...original, EnvironmentalCareClient, getMachines: vi.fn(), getCountries: vi.fn(), login: vi.fn(), requestLoginCode: vi.fn() };
@@ -346,10 +349,13 @@ describe('DysonPlatform', () => {
   });
 
   it('should keep the name of a device when the room name of its machine changes in the Dyson app', async () => {
+    const device = platform.getDeviceByName('Living Room');
     listed = [{ ...purifierCool, name: 'Bedroom' }, hotCool];
     await platform.syncMachines();
-    expect(saveConfig).not.toHaveBeenCalled();
-    expect(platform.getDeviceByName('Living Room')).toBeDefined();
+    // The new room name is stored for the setup page, and the device stays as it was built.
+    expect(saveConfig).toHaveBeenCalledTimes(1);
+    expect(platform.config.devices).toEqual(expect.arrayContaining([expect.objectContaining({ name: 'Living Room', roomName: 'Bedroom' })]));
+    expect(platform.getDeviceByName('Living Room')).toBe(device);
     // Another change of the machine is taken, without a new name or a notice of a new firmware.
     listed = [{ ...purifierCool, name: 'Bedroom', mqttRootTopicLevel: '438M' }, hotCool];
     await platform.syncMachines();

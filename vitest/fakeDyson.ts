@@ -12,8 +12,10 @@ import {
   EnvironmentalCareClient,
   type EnvironmentalCareCapabilities,
   type EnvironmentalCareControl,
+  type EnvironmentalCareFaults,
   type EnvironmentalCareSensors,
   type EnvironmentalCareState,
+  type Filter,
 } from 'dyson-control';
 import type { Mock } from 'vitest';
 
@@ -53,6 +55,23 @@ export const hotCool: DysonMachine = {
 /** A Humidify+Cool, whose barrel turns to a preset angle or breezes. */
 export const humidifyCool: DysonMachine = { serialNumber: 'NK6-EU-MHA0003A', type: '358', category: 'environmentalCare', name: 'Nursery', productName: 'Purifier Humidify+Cool' };
 
+/** A Big+Quiet, which tilts up and down in place of oscillating. */
+export const bigQuiet: DysonMachine = { serialNumber: 'NK6-EU-MHA0005A', type: '664', category: 'environmentalCare', name: 'Hall', productName: 'Big+Quiet' };
+
+/** A Purifier Cool of variant N, which finds the people in the room and follows them. */
+export const purifierFollow: DysonMachine = {
+  serialNumber: 'NK6-EU-MHA0006A',
+  type: '438',
+  variant: 'N',
+  category: 'environmentalCare',
+  name: 'Office',
+  productName: 'Purifier Cool Gen1',
+  firmwareCapabilities: ['AdvanceOscillationDay1'],
+};
+
+/** A Pure Cool Link tower of the first generation, which counts the life of its one filter in hours. */
+export const coolLink: DysonMachine = { serialNumber: 'NK6-EU-MHA0007A', type: '475', category: 'environmentalCare', name: 'Den', productName: 'Pure Cool Link' };
+
 /** A cooling fan that measures no air and has no auto mode. */
 export const coolFan: DysonMachine = { serialNumber: 'NK6-EU-MHA0004A', type: '739', category: 'environmentalCare', name: 'Study', productName: 'Cool Tower' };
 
@@ -76,8 +95,10 @@ export function capabilitiesOf(machine: DysonMachine): EnvironmentalCareCapabili
 export function createDeviceConfig(machine: DysonMachine = purifierCool, overrides: Partial<DysonDeviceConfig> = {}): DysonDeviceConfig {
   return {
     name: machine.name ?? 'Unnamed',
+    roomName: machine.name,
     serialNumber: machine.serialNumber,
     type: machine.type,
+    variant: machine.variant,
     productName: machine.productName,
     firmwareVersion: machine.firmwareVersion,
     firmwareCapabilities: machine.firmwareCapabilities,
@@ -89,6 +110,8 @@ export function createDeviceConfig(machine: DysonMachine = purifierCool, overrid
     airflowDirectionControl: 'native',
     heatControl: 'thermostat',
     humidificationControl: 'select',
+    findAndFollowControl: 'hidden',
+    hasWaterHardnessSelect: false,
     hasContinuousMonitoringSwitch: false,
     hasAirQualitySensor: true,
     hasTemperatureSensor: true,
@@ -160,6 +183,20 @@ export interface FakeClient extends MachineClient {
   getState: Mock<() => Promise<EnvironmentalCareState>>;
   setState: Mock<(control: EnvironmentalCareControl) => Promise<void>>;
   getSensors: Mock<() => Promise<EnvironmentalCareSensors>>;
+  /** The faults the machine reports, which `getFaults` answers with. */
+  faults: EnvironmentalCareFaults;
+  getFaults: Mock<() => Promise<EnvironmentalCareFaults>>;
+  resetFilterLife: Mock<(filter: Filter) => Promise<void>>;
+}
+
+/**
+ * Build the faults of a machine
+ *
+ * @param {Partial<EnvironmentalCareFaults>} overrides The groups to replace.
+ * @returns {EnvironmentalCareFaults} The faults, none unless given.
+ */
+export function createFaults(overrides: Partial<EnvironmentalCareFaults> = {}): EnvironmentalCareFaults {
+  return { productErrors: [], productWarnings: [], moduleErrors: [], moduleWarnings: [], ...overrides };
 }
 
 /**
@@ -173,7 +210,7 @@ export function createFakeClient(machine: DysonMachine = purifierCool, state: Pa
   const client = {} as FakeClient;
   const methods: FakeClient = {
     capabilities: capabilitiesOf(machine),
-    handlers: { onState: ignore, onSensors: ignore, onReconnect: ignore, onDisconnect: ignore },
+    handlers: { onState: ignore, onSensors: ignore, onFaults: ignore, onReconnect: ignore, onDisconnect: ignore },
     state: {
       fanPower: true,
       autoMode: false,
@@ -190,21 +227,45 @@ export function createFakeClient(machine: DysonMachine = purifierCool, state: Pa
       humidificationMode: null,
       autoHumidification: null,
       manualHumidificationTargetInPercent: null,
+      tiltAngleInDegrees: null,
+      findAndFollowMode: null,
+      waterHardness: null,
+      oscillationState: null,
+      findAndFollowState: null,
+      cleanCycleState: null,
+      remainingTimeToNextCleanCycleInHours: null,
+      remainingTimeOfActiveCleanCycleInMinutes: null,
+      filterLifeInHours: null,
+      innerFilterLifeInPercent: null,
+      outerFilterLifeInPercent: null,
+      innerFilterType: null,
+      outerFilterType: null,
       ...state,
     },
     sensors: createSensors(),
     connect: vi.fn(async () => Promise.resolve()),
     disconnect: vi.fn(async () => Promise.resolve()),
     getState: vi.fn(async () => ({ ...client.state })),
-    // As dyson-control and the machine do: a speed or the auto mode turn the machine on, and a speed leaves the auto mode.
+    // As dyson-control and the machine do: a speed, the auto mode, a tilt or find and follow turn the machine on, and a speed leaves the auto mode.
     setState: vi.fn(async (control: EnvironmentalCareControl) => {
-      const runs = control.autoMode !== undefined || control.fanSpeed !== undefined;
+      const runs =
+        control.autoMode !== undefined ||
+        control.fanSpeed !== undefined ||
+        control.tiltAngleInDegrees !== undefined ||
+        (control.findAndFollowMode !== undefined && control.findAndFollowMode !== 'off');
       Object.assign(client.state, control);
       if (control.fanPower === undefined && runs) client.state.fanPower = true;
       if (control.fanSpeed !== undefined && control.autoMode === undefined) client.state.autoMode = false;
       if (control.autoMode === true) client.state.fanSpeed = null;
     }),
     getSensors: vi.fn(async () => ({ ...client.sensors })),
+    faults: createFaults(),
+    getFaults: vi.fn(async () => ({ ...client.faults })),
+    resetFilterLife: vi.fn(async (filter: Filter) => {
+      if (filter === 'filter') client.state.filterLifeInHours = 4300;
+      if (filter === 'outerFilter') client.state.outerFilterLifeInPercent = 100;
+      if (filter === 'innerFilter') client.state.innerFilterLifeInPercent = 100;
+    }),
   };
   Object.assign(client, methods);
   return client;

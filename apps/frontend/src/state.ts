@@ -63,3 +63,9 @@ export function draftLabel(draft: Draft): string {
 export function productLabel(machine: Machine): string {
   return machine.productName ?? `Dyson machine of type ${machine.type}`;
 }
+
+/** A machine as the Dyson app knows it, to tell it apart: what it is sold as, its serial number, and its room name. */
+export function machineLabel(machine: Machine): string {
+  const label = `${productLabel(machine)} ${machine.serialNumber}`;
+  return machine.name === undefined ? label : `${label}, named "${machine.name}" in the Dyson app`;
+}

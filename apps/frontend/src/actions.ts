@@ -52,6 +52,19 @@ export async function loadState(): Promise<void> {
   }
   view.screen = 'home';
   render();
+  void syncState();
+}
+
+/**
+ * Read the machine list of the account again behind the page as it opens, so that what changed in the Dyson app since
+ * the last read, such as a room name, shows without waiting for the next one. The page is redrawn only when the state
+ * changed: a redraw for nothing could land between a press and its click, and lose the click.
+ */
+async function syncState(): Promise<void> {
+  const reply = await api('POST sync');
+  if (!reply.ok || JSON.stringify(reply.state) === JSON.stringify(view.setup)) return;
+  setSetup(reply.state);
+  render();
 }
 
 // The state is read again this long after it showed a machine connecting.
@@ -208,7 +221,7 @@ export async function saveDraft(draft: Draft): Promise<void> {
     return;
   }
   const { machine } = draft;
-  const device = { ...machine, name, ...pickExposure(draft) };
+  const device = { ...machine, name, roomName: machine.name, ...pickExposure(draft) };
   const reply = await busy(`Saving ${name}…`, async () => api('POST device', { device }));
   if (!reply.ok) {
     view.error = reply.error;

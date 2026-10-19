@@ -1,6 +1,6 @@
 /**
  * @file apps/frontend/src/screens/options.ts
- * @description The Options step: how the fan, its auto mode, oscillation and night mode, the heating, the humidifying and the readings of a machine appear in Matter, one section each, and whether as one device.
+ * @description The Options step: how the fan, its auto mode, oscillation and night mode, the find and follow, the heating, the humidifying, the clean cycle and the readings of a machine appear in Matter, one section each, and whether as one device.
  * @author Calvin Che
  * @license Apache-2.0
  */
@@ -12,7 +12,7 @@ import { type Child, h } from '../dom.js';
 import { noControls, noReportedSensors } from '../exposure.js';
 import { matchesPreset, presetExposure, type PresetName, presets } from '../presets.js';
 import { render } from '../render.js';
-import { currentDraft, type Draft, productLabel } from '../state.js';
+import { currentDraft, type Draft, machineLabel } from '../state.js';
 
 // Static drawings, so innerHTML is safe for them. Everything that comes from the network goes through text nodes.
 const glyphs = {
@@ -63,12 +63,14 @@ function radioSection(title: string, help: string, ...choices: Child[]): HTMLEle
   return h('section', {}, h('h2', { id }, title), help === '' ? null : h('p', { class: 'help' }, help), h('div', { 'class': 'choices', 'role': 'radiogroup', 'aria-labelledby': id }, ...choices));
 }
 
-// Written to the draft as it is typed, without a redraw: leaving the field for the Save button would otherwise redraw
-// the page under the click, which then reaches no button. The other mentions of the name follow at the next redraw.
+// Redrawn as it is typed, so that the texts that name the device follow. A redraw when the field is left instead would
+// replace the button the click leaving it is on, and lose that click.
 function nameSection(draft: Draft): HTMLElement {
   const input = h('input', { type: 'text', id: 'device-name', value: draft.name, maxLength: 32, autocomplete: 'off', spellcheck: false });
-  input.addEventListener('input', () => {
+  input.addEventListener('input', (event) => {
     draft.name = input.value.trim();
+    // A redraw in the middle of a composition, such as of Japanese text, would end it.
+    if (!(event as InputEvent).isComposing) render();
   });
   const room = draft.machine.name;
   const roomText = room === undefined ? 'It has no room name in the Dyson app.' : `Its room name in the Dyson app is "${room}", which other machines in that room share.`;
@@ -102,8 +104,10 @@ function presetSection(draft: Draft, controls: AvailableControls): HTMLElement {
   );
 }
 
-function deviceTypeSection(draft: Draft): HTMLElement {
+// An air purifier shows the life left in the filters of a machine that reports it: Matter has filters on an air purifier alone.
+function deviceTypeSection(draft: Draft, controls: AvailableControls): HTMLElement {
   const pick = (deviceType: Exposure['deviceType']): void => update(draft, { deviceType });
+  const filters = controls.hasFilterLife ? ' and the life left in its filters, which a Matter app can reset after a new one is fitted' : '';
   return h(
     'section',
     {},
@@ -111,8 +115,8 @@ function deviceTypeSection(draft: Draft): HTMLElement {
     h(
       'div',
       { class: 'choices' },
-      choice('device-type', 'airPurifier', draft.deviceType, 'An air purifier', 'The Matter device type of a purifier, with its fan speed. Apple Home, Google Home and Home Assistant show it.', glyphs.purifier, pick),
-      choice('device-type', 'fan', draft.deviceType, 'A fan', 'The Matter device type every app shows, with the same fan speed. For apps that show no air purifier.', glyphs.fan, pick),
+      choice('device-type', 'airPurifier', draft.deviceType, 'An air purifier', `The Matter device type of a purifier, with its fan speed${filters}. Apple Home, Google Home and Home Assistant show it.`, glyphs.purifier, pick),
+      choice('device-type', 'fan', draft.deviceType, 'A fan', `The Matter device type every app shows, with the same fan speed${controls.hasFilterLife ? ', but no filters' : ''}. For apps that show no air purifier.`, glyphs.fan, pick),
     ),
   );
 }
@@ -158,8 +162,22 @@ function listAngles(angles: readonly OscillationAngleChoice[]): string {
   return labels.length === 1 ? labels[0] : `${labels.slice(0, -1).join(', ')} and ${labels[labels.length - 1]}`;
 }
 
+// A machine that tilts breezes up and down in place of oscillating, and tilts to an angle in place of sweeping one.
+function tiltSection(draft: Draft): HTMLElement {
+  const pick = (oscillationControl: Exposure['oscillationControl']): void => update(draft, { oscillationControl });
+  return radioSection(
+    'Tilt',
+    'The machine tilts to 0°, 25° or 50°, or breezes: it tilts up and down. Tilting turns the machine on in the Dyson app, but not from Matter: a machine that is off stays off.',
+    radio('oscillation', 'native', draft.oscillationControl, 'On the fan', `The up and down rocking of the fan control, as Matter has it: on breezes, off goes back to the angle it was tilted to. ${fanFeatureSupport}`, pick),
+    radio('oscillation', 'switch', draft.oscillationControl, 'A switch', `${placement(draft, 'Oscillation', true)}. On breezes, off goes back to the angle it was tilted to.`, pick),
+    radio('oscillation', 'select', draft.oscillationControl, 'A mode select', `${placement(draft, 'Tilt', true)}, and picks 0°, 25°, 50° or breeze. ${selectSupport}`, pick),
+    radio('oscillation', 'hidden', draft.oscillationControl, 'Not shown in Matter', 'The tilt stays as the Dyson app sets it.', pick),
+  );
+}
+
 function oscillationSection(draft: Draft, controls: AvailableControls): Child {
   if (!controls.hasOscillation) return null;
+  if (controls.tiltAngles.length > 0) return tiltSection(draft);
   const pick = (oscillationControl: Exposure['oscillationControl']): void => update(draft, { oscillationControl });
   const hasSelect = controls.oscillationAngles.length > 0;
   const current = draft.oscillationControl === 'select' && !hasSelect ? 'switch' : draft.oscillationControl;
@@ -196,6 +214,18 @@ function airflowSection(draft: Draft, controls: AvailableControls): Child {
   );
 }
 
+function findAndFollowSection(draft: Draft, controls: AvailableControls): Child {
+  if (!controls.hasFindAndFollow) return null;
+  const pick = (findAndFollowControl: Exposure['findAndFollowControl']): void => update(draft, { findAndFollowControl });
+  return radioSection(
+    'Find and follow',
+    'The machine finds the people in the room and turns to follow them. It runs only while the machine is on, so turning it on turns the machine on.',
+    radio('find-and-follow', 'switch', draft.findAndFollowControl, 'A switch', `${placement(draft, 'Find and Follow', true)}. On follows the people the machine finds.`, pick),
+    radio('find-and-follow', 'select', draft.findAndFollowControl, 'A mode select', `${placement(draft, 'Find and Follow', true)}, and picks off, follow, or scan to look for people. ${selectSupport}`, pick),
+    radio('find-and-follow', 'hidden', draft.findAndFollowControl, 'Not shown in Matter', 'Find and follow stays as the Dyson app sets it.', pick),
+  );
+}
+
 function heatSection(draft: Draft, controls: AvailableControls): Child {
   if (!controls.hasHeat) return null;
   const pick = (heatControl: Exposure['heatControl']): void => update(draft, { heatControl });
@@ -219,6 +249,27 @@ function humidifySection(draft: Draft, controls: AvailableControls): Child {
     radio('humidify', 'switches', draft.humidificationControl, 'Switches', `${placement(draft, 'Humidify', true)}, and humidifies to the target set in the Dyson app.${autoSwitch}`, pick),
     radio('humidify', 'select', draft.humidificationControl, 'A mode select', `${placement(draft, 'Target Humidity', true)}, and picks ${autoValue}. ${selectSupport}`, pick),
     radio('humidify', 'hidden', draft.humidificationControl, 'Not shown in Matter', 'The humidifying stays as the Dyson app sets it.', pick),
+  );
+}
+
+function cleanCycleSection(draft: Draft, controls: AvailableControls): Child {
+  if (!controls.hasWaterHardness) return null;
+  return h(
+    'section',
+    {},
+    h('h2', {}, 'Clean cycle'),
+    h('p', { class: 'help' }, 'The machine asks for a clean cycle as often as the hardness of its water says: the harder the water, the sooner. The setup page shows when the next one is due.'),
+    h(
+      'div',
+      { class: 'choices' },
+      toggle(
+        'water-hardness',
+        draft.hasWaterHardnessSelect,
+        'Add a mode select for the water hardness',
+        `${placement(draft, 'Water Hardness', true)}, and picks soft, medium or hard. ${selectSupport}`,
+        (hasWaterHardnessSelect) => update(draft, { hasWaterHardnessSelect }),
+      ),
+    ),
   );
 }
 
@@ -315,16 +366,18 @@ export function optionsScreen(): Child[] {
   return [
     steps(),
     unitStrip(),
-    unitHeader(draft, `Options for the ${productLabel(draft.machine)} ${draft.machine.serialNumber}. Power and fan speed always appear in Matter: choose how the rest appears.`),
+    unitHeader(draft, `Options for the ${machineLabel(draft.machine)}. Power and fan speed always appear in Matter: choose how the rest appears.`),
     nameSection(draft),
     presetSection(draft, controls),
-    deviceTypeSection(draft),
+    deviceTypeSection(draft, controls),
     fanSection(draft, controls),
     oscillationSection(draft, controls),
     nightModeSection(draft),
     airflowSection(draft, controls),
+    findAndFollowSection(draft, controls),
     heatSection(draft, controls),
     humidifySection(draft, controls),
+    cleanCycleSection(draft, controls),
     sensorSection(draft, controls),
     composedSection(draft),
     draft.isNew ? null : h('p', { class: 'help' }, 'Changing any of these rebuilds this machine in Matter. Your Matter app may take a moment to show the change.'),

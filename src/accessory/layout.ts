@@ -21,7 +21,7 @@
  * limitations under the License.
  */
 
-import type { EnvironmentalCareCapabilities } from 'dyson-control';
+import type { EnvironmentalCareCapabilities, FindAndFollowMode, TiltAngle, WaterHardness } from 'dyson-control';
 
 import type { DeviceTypeOption, DysonDeviceConfig } from '../config.js';
 import { getAvailableControls, type ReportedSensors } from '../controls.js';
@@ -49,13 +49,26 @@ export interface AccessoryLayout {
   /** Whether the auto mode is a step of the fan control. */
   hasFanAutoStep: boolean;
   hasFanAutoSwitch: boolean;
-  /** Whether the oscillation is the left and right rocking of the fan control. */
+  /** Whether the oscillation is the rocking of the fan control: left and right, or up and down for a machine that tilts. */
   hasRocking: boolean;
+  /** Whether the machine tilts, so that its oscillation is its breeze, which tilts it up and down. */
+  isTilt: boolean;
   hasOscillationSwitch: boolean;
   /** Off and the angles the oscillation select picks from, or none when the device has no oscillation select. */
   oscillationSelectValues: readonly OscillationSelectValue[];
   /** Whether the angles of the oscillation select are sweeps written as two angles, for a machine that takes two angles. */
   isSweepSelect: boolean;
+  /** The angles and the breeze the tilt select picks from, or none when the device has no tilt select. */
+  tiltSelectValues: readonly TiltAngle[];
+  hasFindAndFollowSwitch: boolean;
+  /** Off, follow and scan on the find and follow select, or none when the device has no find and follow select. */
+  findAndFollowSelectValues: readonly FindAndFollowMode[];
+  /** The hardnesses the water hardness select picks from, or none when the device has no water hardness select. */
+  waterHardnessSelectValues: readonly WaterHardness[];
+  /** Whether the air purifier shows the life left in its HEPA filter: the outer filter, or the one filter of a machine of the first generation. */
+  hasHepaFilter: boolean;
+  /** Whether the air purifier shows the life left in its activated carbon filter: the inner filter. */
+  hasCarbonFilter: boolean;
   /** Whether the night mode is the sleep wind of the fan control. */
   hasSleepWind: boolean;
   hasNightModeSwitch: boolean;
@@ -93,7 +106,12 @@ export function getAccessoryLayout(config: DysonDeviceConfig, capabilities: Envi
   let fanPositions: FanPosition[] = [...fanSteps];
   if (hasAutoStep) fanPositions = config.fanAutoControl === 'firstStep' ? ['auto', ...fanSteps] : [...fanSteps, 'auto'];
   const oscillation = controls.hasOscillation ? config.oscillationControl : 'hidden';
+  const isTilt = controls.tiltAngles.length > 0;
   const hasOscillationSelect = oscillation === 'select' && controls.oscillationAngles.length > 0;
+  const hasTiltSelect = oscillation === 'select' && isTilt;
+  const findAndFollow = controls.hasFindAndFollow ? config.findAndFollowControl : 'hidden';
+  // Matter has filters on an air purifier alone, where an app that does not show them leaves them out: they need no choice.
+  const hasFilters = controls.hasFilterLife && config.deviceType === 'airPurifier';
   const airflow = controls.hasAirflowDirection ? config.airflowDirectionControl : 'hidden';
   const heat = controls.hasHeat ? config.heatControl : 'hidden';
   const humidification = controls.hasHumidification ? config.humidificationControl : 'hidden';
@@ -107,10 +125,17 @@ export function getAccessoryLayout(config: DysonDeviceConfig, capabilities: Envi
     hasFanAutoStep: hasAutoStep,
     hasFanAutoSwitch: controls.hasAutoMode && config.fanAutoControl === 'switch',
     hasRocking: oscillation === 'native',
+    isTilt,
     // An oscillation select without angles to pick from would be a switch, so it is one.
-    hasOscillationSwitch: oscillation === 'switch' || (oscillation === 'select' && !hasOscillationSelect),
+    hasOscillationSwitch: oscillation === 'switch' || (oscillation === 'select' && !hasOscillationSelect && !hasTiltSelect),
     oscillationSelectValues: hasOscillationSelect ? ['off', ...controls.oscillationAngles] : [],
     isSweepSelect: hasOscillationSelect && capabilities.oscillationAngles !== null,
+    tiltSelectValues: hasTiltSelect ? controls.tiltAngles : [],
+    hasFindAndFollowSwitch: findAndFollow === 'switch',
+    findAndFollowSelectValues: findAndFollow === 'select' ? capabilities.findAndFollowModes : [],
+    waterHardnessSelectValues: controls.hasWaterHardness && config.hasWaterHardnessSelect ? capabilities.waterHardnesses : [],
+    hasHepaFilter: hasFilters && (capabilities.filters.includes('outerFilter') || capabilities.filters.includes('filter')),
+    hasCarbonFilter: hasFilters && capabilities.filters.includes('innerFilter'),
     hasSleepWind: config.nightModeControl === 'native',
     hasNightModeSwitch: config.nightModeControl === 'switch',
     hasAirflowDirection: airflow === 'native',

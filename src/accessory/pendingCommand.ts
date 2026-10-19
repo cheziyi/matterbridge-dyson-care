@@ -21,18 +21,17 @@
  * limitations under the License.
  */
 
-import type { EnvironmentalCareCapabilities, EnvironmentalCareControl, EnvironmentalCareState, FanSpeed } from 'dyson-control';
+import type { EnvironmentalCareCapabilities, EnvironmentalCareControl, EnvironmentalCareState, FanSpeed, TiltAngle } from 'dyson-control';
 
 import {
   clampHeatTarget,
-  type FanModePick,
-  fanSteps,
-  getPickedSpeed,
+  defaultTiltAngle,
   getSweepAngles,
   type HumiditySelectValue,
   isOscillationSweep,
   middleFanSpeed,
   type OscillationSelectValue,
+  toOscillationMode,
 } from '../mapping.js';
 import type { FanRequest } from './matterState.js';
 
@@ -45,6 +44,10 @@ export interface MachineSnapshot {
   lastManualFanSpeed: FanSpeed | undefined;
   /** Whether the angles of the oscillation select are sweeps written as two angles. */
   isSweepSelect: boolean;
+  /** Whether the machine tilts, so that its oscillation is its breeze. */
+  isTilt: boolean;
+  /** The angle the machine was last seen tilted to, which turning its breeze off goes back to. */
+  lastTiltAngle: TiltAngle | undefined;
 }
 
 /**
@@ -55,9 +58,10 @@ export interface MachineSnapshot {
 export class PendingCommand {
   private control: EnvironmentalCareControl = {};
   private isFanRequested = false;
-  private fanModePick: FanModePick | undefined;
   private fanAuto: boolean | undefined;
+  private isOscillationOn: boolean | undefined;
   private oscillation: OscillationSelectValue | undefined;
+  private tilt: TiltAngle | undefined;
   private humidity: HumiditySelectValue | undefined;
 
   /**
@@ -80,17 +84,6 @@ export class PendingCommand {
   }
 
   /**
-   * Ask for the speed a fan mode a controller picked stands for: Low the slowest speed, Medium the middle one, High the
-   * fastest
-   *
-   * @param {FanModePick} pick The speed the fan mode stands for.
-   * @returns {void}
-   */
-  requestFanModePick(pick: FanModePick): void {
-    this.fanModePick = pick;
-  }
-
-  /**
    * Ask for the auto mode, or for the machine to leave it
    *
    * @param {boolean} isOn Whether the machine is in its auto mode.
@@ -101,6 +94,30 @@ export class PendingCommand {
   }
 
   /**
+   * Ask for the oscillation on or off, as a switch or the rocking of the fan control does: for a machine that tilts,
+   * its breeze
+   *
+   * @param {boolean} isOn Whether the machine oscillates.
+   * @returns {void}
+   */
+  requestOscillationOn(isOn: boolean): void {
+    this.isOscillationOn = isOn;
+    this.oscillation = undefined;
+    this.tilt = undefined;
+  }
+
+  /**
+   * Ask for a value of the tilt select
+   *
+   * @param {TiltAngle} angle The angle to tilt to, or the breeze.
+   * @returns {void}
+   */
+  requestTilt(angle: TiltAngle): void {
+    this.tilt = angle;
+    this.isOscillationOn = undefined;
+  }
+
+  /**
    * Ask for a value of the oscillation select
    *
    * @param {OscillationSelectValue} value Off, or the angle to sweep.
@@ -108,6 +125,7 @@ export class PendingCommand {
    */
   requestOscillation(value: OscillationSelectValue): void {
     this.oscillation = value;
+    this.isOscillationOn = undefined;
   }
 
   /**
@@ -138,6 +156,9 @@ export class PendingCommand {
    *  - auto off goes back to the speed the fan last ran at, or to speed 5 when it was never seen at one, and leaves a
    *    machine that is off as it is: a speed would turn it on
    *  - a target humidity or the auto humidifying turns the humidifying on, and the machine with it
+   *  - the oscillation of a machine paused while it stands by is turned on and off with its idle modes
+   *  - the breeze of a machine that tilts turned off goes back to the angle it was last seen at, or to 0°
+   *  - a tilt leaves a machine that is off as it is: dyson-control turns the machine on with one
    *
    * @param {MachineSnapshot} machine The machine as it was last read.
    * @param {() => FanRequest | undefined} readFan Reads what the fan control holds. It is only called when the fan control was written.
@@ -145,9 +166,7 @@ export class PendingCommand {
    */
   take(machine: MachineSnapshot, readFan: () => FanRequest | undefined): EnvironmentalCareControl {
     const { control } = this;
-    // A fan mode picked stands for a speed of its own, wherever the percent it set falls.
-    if (this.fanModePick !== undefined) this.applyFan(control, getPickedSpeed(fanSteps, this.fanModePick));
-    else if (this.isFanRequested) this.applyFan(control, readFan());
+    if (this.isFanRequested) this.applyFan(control, readFan());
     if (this.fanAuto === true) control.autoMode = true;
     else if (this.fanAuto === false && (control.autoMode ?? machine.state?.autoMode) === true) {
       control.fanSpeed = control.fanSpeed ?? machine.lastManualFanSpeed ?? middleFanSpeed;
@@ -155,9 +174,18 @@ export class PendingCommand {
       // A fan speed turns the machine on: one that is off stays off.
       if (control.fanPower === undefined && machine.state?.fanPower === false) control.fanPower = false;
     }
-    if (this.oscillation === 'off') control.oscillationMode = 'off';
+    const oscillationModes = machine.capabilities.oscillationModes;
+    if (this.isOscillationOn !== undefined) {
+      if (machine.isTilt) this.tilt = this.isOscillationOn ? 'breeze' : (machine.lastTiltAngle ?? defaultTiltAngle);
+      else control.oscillationMode = toOscillationMode(this.isOscillationOn, machine.state, oscillationModes);
+    }
+    if (this.tilt !== undefined) {
+      control.tiltAngleInDegrees = this.tilt;
+      if (control.fanPower === undefined && machine.state?.fanPower === false) control.fanPower = false;
+    }
+    if (this.oscillation === 'off') control.oscillationMode = toOscillationMode(false, machine.state, oscillationModes);
     else if (this.oscillation !== undefined) {
-      control.oscillationMode = 'on';
+      control.oscillationMode = toOscillationMode(true, machine.state, oscillationModes);
       // The select of a machine that takes two angles lists sweeps alone, which fit its range.
       const range = machine.capabilities.oscillationAngles;
       if (machine.isSweepSelect && range !== null && isOscillationSweep(this.oscillation)) {
@@ -185,9 +213,10 @@ export class PendingCommand {
   clear(): void {
     this.control = {};
     this.isFanRequested = false;
-    this.fanModePick = undefined;
     this.fanAuto = undefined;
+    this.isOscillationOn = undefined;
     this.oscillation = undefined;
+    this.tilt = undefined;
     this.humidity = undefined;
   }
 

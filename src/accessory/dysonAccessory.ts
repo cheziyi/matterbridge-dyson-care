@@ -21,7 +21,16 @@
  * limitations under the License.
  */
 
-import type { EnvironmentalCareClient, EnvironmentalCareControl, EnvironmentalCareSensors, EnvironmentalCareState, FanSpeed } from 'dyson-control';
+import type {
+  EnvironmentalCareClient,
+  EnvironmentalCareControl,
+  EnvironmentalCareFaults,
+  EnvironmentalCareSensors,
+  EnvironmentalCareState,
+  FanSpeed,
+  Filter,
+  TiltAngle,
+} from 'dyson-control';
 import type { MatterbridgeEndpoint } from 'matterbridge';
 import type { AnsiLogger } from 'matterbridge/logger';
 import type { ActionContext } from 'matterbridge/matter';
@@ -30,7 +39,15 @@ import { BridgedDeviceBasicInformation, FanControl, ModeSelect, OnOff, Thermosta
 import type { DysonDeviceConfig } from '../config.js';
 import { addReportedSensors, noReportedSensors, type ReportedSensors } from '../controls.js';
 import { getErrorMessage, getErrorStatus } from '../errors.js';
-import { fanModeScale, getFanModePick, humiditySelectChoices, oscillationSelectChoices, type SelectChoices, toModeOptions } from '../mapping.js';
+import {
+  findAndFollowSelectChoices,
+  humiditySelectChoices,
+  oscillationSelectChoices,
+  type SelectChoices,
+  tiltSelectChoices,
+  toModeOptions,
+  waterHardnessSelectChoices,
+} from '../mapping.js';
 import {
   createAirQualityEndpoint,
   createHumidityEndpoint,
@@ -51,13 +68,17 @@ export const defaultCommandDelayInMs = 300;
 /** How many reads in a row have to fail before the device is reported as unreachable. */
 const unreachableAfterFailures = 2;
 
+/** How long, in milliseconds, the faults of a machine are kept before a poll asks for them again: they change rarely, and the machine also sends them as they change. */
+const faultsIntervalInMs = 15 * 60 * 1000;
+
 /** What a machine's client takes and gives: the part of `EnvironmentalCareClient` the accessory calls. */
-export type MachineClient = Pick<EnvironmentalCareClient, 'capabilities' | 'connect' | 'disconnect' | 'getState' | 'setState' | 'getSensors'>;
+export type MachineClient = Pick<EnvironmentalCareClient, 'capabilities' | 'connect' | 'disconnect' | 'getState' | 'setState' | 'getSensors' | 'getFaults' | 'resetFilterLife'>;
 
 /** What the client of a machine calls the accessory back with. */
 export interface MachineClientHandlers {
   onState: (state: EnvironmentalCareState) => void;
   onSensors: (sensors: EnvironmentalCareSensors) => void;
+  onFaults: (faults: EnvironmentalCareFaults) => void;
   onReconnect: () => void;
   onDisconnect: () => void;
 }
@@ -86,6 +107,18 @@ export interface DysonAccessoryStatus {
   /** The status of the last error, such as 401 for credentials the cloud no longer accepts. */
   lastErrorStatus?: number;
   state?: EnvironmentalCareState;
+  /** The faults the machine last reported, each by Dyson's name, or undefined until it reports them. */
+  faults?: string[];
+}
+
+/**
+ * List the faults a machine reports, whichever group each is in
+ *
+ * @param {EnvironmentalCareFaults} faults The faults, as dyson-control reads them.
+ * @returns {string[]} Each fault once, by Dyson's name, in alphabetical order.
+ */
+function listFaults(faults: EnvironmentalCareFaults): string[] {
+  return [...new Set([...faults.productErrors, ...faults.productWarnings, ...faults.moduleErrors, ...faults.moduleWarnings])].toSorted();
 }
 
 /**
@@ -123,6 +156,10 @@ export class DysonAccessory implements AccessoryEndpoints {
   readonly fanAutoSwitch: MatterbridgeEndpoint | undefined;
   readonly oscillationSwitch: MatterbridgeEndpoint | undefined;
   readonly oscillationSelect: MatterbridgeEndpoint | undefined;
+  readonly tiltSelect: MatterbridgeEndpoint | undefined;
+  readonly findAndFollowSwitch: MatterbridgeEndpoint | undefined;
+  readonly findAndFollowSelect: MatterbridgeEndpoint | undefined;
+  readonly waterHardnessSelect: MatterbridgeEndpoint | undefined;
   readonly nightModeSwitch: MatterbridgeEndpoint | undefined;
   readonly airflowDirectionSwitch: MatterbridgeEndpoint | undefined;
   readonly thermostat: MatterbridgeEndpoint | undefined;
@@ -149,6 +186,11 @@ export class DysonAccessory implements AccessoryEndpoints {
   private sensors: EnvironmentalCareSensors | undefined;
   /** The speed the fan last ran at outside the auto mode, which turning the auto mode off goes back to. */
   private lastManualFanSpeed: FanSpeed | undefined;
+  /** The angle a machine that tilts was last seen at, which turning its breeze off goes back to. */
+  private lastTiltAngle: TiltAngle | undefined;
+  private faults: string[] | undefined;
+  /** When the faults were last asked for, in milliseconds since the epoch. */
+  private faultsReadAt: number | undefined;
   private isConnected = false;
   private isReachable = false;
   /** Until the first read of the client ends, which takes the cloud a moment to connect. */
@@ -191,15 +233,28 @@ export class DysonAccessory implements AccessoryEndpoints {
     if (this.layout.isComposed) this.parent = this.endpoint;
     const { layout } = this;
     if (layout.hasFanAutoSwitch) this.fanAutoSwitch = this.createSwitch('auto-mode', 'A', 'Auto Mode', (isOn) => this.queueFanAuto(isOn));
-    if (layout.hasOscillationSwitch)
-      this.oscillationSwitch = this.createSwitch('oscillation', 'O', 'Oscillation', (isOn) =>
-        this.queueControl({ oscillationMode: isOn ? 'on' : 'off' }, `oscillation ${isOn ? 'on' : 'off'}`),
-      );
+    if (layout.hasOscillationSwitch) this.oscillationSwitch = this.createSwitch('oscillation', 'O', 'Oscillation', (isOn) => this.queueOscillation(isOn, 'oscillation'));
     if (layout.oscillationSelectValues.length > 0) {
       this.oscillationSelect = this.createSelect('oscillation-select', 'W', 'Oscillation', oscillationSelectChoices, layout.oscillationSelectValues, (value) => {
         this.pending.requestOscillation(value);
         this.scheduleCommand(`oscillation select ${value}`);
       });
+    }
+    if (layout.tiltSelectValues.length > 0) {
+      this.tiltSelect = this.createSelect('tilt-select', 'L', 'Tilt', tiltSelectChoices, layout.tiltSelectValues, (angle) => {
+        this.pending.requestTilt(angle);
+        this.scheduleCommand(`tilt ${angle}`);
+      });
+    }
+    if (layout.hasFindAndFollowSwitch) {
+      this.findAndFollowSwitch = this.createSwitch('find-and-follow', 'P', 'Find and Follow', (isOn) =>
+        this.queueControl({ findAndFollowMode: isOn ? 'on' : 'off' }, `find and follow ${isOn ? 'on' : 'off'}`),
+      );
+    }
+    if (layout.findAndFollowSelectValues.length > 0) {
+      this.findAndFollowSelect = this.createSelect('find-and-follow-select', 'S', 'Find and Follow', findAndFollowSelectChoices, layout.findAndFollowSelectValues, (mode) =>
+        this.queueControl({ findAndFollowMode: mode }, `find and follow ${mode}`),
+      );
     }
     if (layout.hasNightModeSwitch)
       this.nightModeSwitch = this.createSwitch('night-mode', 'N', 'Night Mode', (isOn) => this.queueControl({ nightMode: isOn }, `night mode ${isOn ? 'on' : 'off'}`));
@@ -221,6 +276,11 @@ export class DysonAccessory implements AccessoryEndpoints {
         this.pending.requestHumidity(value);
         this.scheduleCommand(`target humidity ${value}`);
       });
+    }
+    if (layout.waterHardnessSelectValues.length > 0) {
+      this.waterHardnessSelect = this.createSelect('water-hardness-select', 'D', 'Water Hardness', waterHardnessSelectChoices, layout.waterHardnessSelectValues, (hardness) =>
+        this.queueControl({ waterHardness: hardness }, `water hardness ${hardness}`),
+      );
     }
     if (layout.hasContinuousMonitoringSwitch) {
       this.continuousMonitoringSwitch = this.createSwitch('continuous-monitoring', 'C', 'Continuous Monitoring', (isOn) =>
@@ -246,12 +306,16 @@ export class DysonAccessory implements AccessoryEndpoints {
       this.fanAutoSwitch,
       this.oscillationSwitch,
       this.oscillationSelect,
+      this.tiltSelect,
+      this.findAndFollowSwitch,
+      this.findAndFollowSelect,
       this.nightModeSwitch,
       this.airflowDirectionSwitch,
       this.heatSwitch,
       this.humidifySwitch,
       this.autoHumidifySwitch,
       this.humiditySelect,
+      this.waterHardnessSelect,
       this.continuousMonitoringSwitch,
       this.airQualitySensor,
       this.temperatureSensor,
@@ -290,7 +354,14 @@ export class DysonAccessory implements AccessoryEndpoints {
    * @returns {DysonAccessoryStatus} Whether the last reads succeeded, the last error and the last state read.
    */
   getStatus(): DysonAccessoryStatus {
-    return { isReachable: this.isReachable, isConnecting: this.isConnecting, lastError: this.lastError, lastErrorStatus: this.lastErrorStatus, state: this.state };
+    return {
+      isReachable: this.isReachable,
+      isConnecting: this.isConnecting,
+      lastError: this.lastError,
+      lastErrorStatus: this.lastErrorStatus,
+      state: this.state,
+      faults: this.faults,
+    };
   }
 
   /**
@@ -411,6 +482,9 @@ export class DysonAccessory implements AccessoryEndpoints {
       onSensors: (sensors) => {
         if (this.client === client) this.receiveSensors(sensors);
       },
+      onFaults: (faults) => {
+        if (this.client === client) this.receiveFaults(faults);
+      },
       onReconnect: () => {
         if (this.client !== client) return;
         this.log.info(`"${this.name}" connected again`);
@@ -435,24 +509,22 @@ export class DysonAccessory implements AccessoryEndpoints {
       this.pending.requestFan();
       this.scheduleCommand('fan speed');
     };
-    this.listen(endpoint, () =>
-      endpoint.subscribeAttribute(FanControl, 'fanMode', (fanMode: FanControl.FanMode, _previous: FanControl.FanMode, context: ActionContext) => {
-        if (!isControllerWrite(context)) return;
-        const pick = getFanModePick(fanMode, endpoint.getAttribute(FanControl, 'percentSetting'), fanModeScale);
-        if (pick === undefined) this.pending.requestFan();
-        else this.pending.requestFanModePick(pick);
-        this.scheduleCommand(pick === undefined ? 'fan speed' : `fan mode ${FanControl.FanMode[fanMode]} for the ${pick} speed`);
-      }),
-    );
+    this.listen(endpoint, () => endpoint.subscribeAttribute(FanControl, 'fanMode', onFanWrite));
     this.listen(endpoint, () => endpoint.subscribeAttribute(FanControl, 'percentSetting', onFanWrite));
     if (this.layout.hasRocking) {
       this.listen(endpoint, () =>
-        endpoint.subscribeAttribute('FanControl', 'rockSetting', (setting: { rockLeftRight?: boolean }, _previous: unknown, context: ActionContext) => {
-          if (isControllerWrite(context))
-            this.queueControl({ oscillationMode: setting.rockLeftRight === true ? 'on' : 'off' }, `rocking ${setting.rockLeftRight === true ? 'on' : 'off'}`);
+        endpoint.subscribeAttribute('FanControl', 'rockSetting', (setting: { rockLeftRight?: boolean; rockUpDown?: boolean }, _previous: unknown, context: ActionContext) => {
+          if (isControllerWrite(context)) this.queueOscillation((this.layout.isTilt ? setting.rockUpDown : setting.rockLeftRight) === true, 'rocking');
         }),
       );
     }
+    // Matterbridge puts the condition back to full once the reset is sent, and the machine's own life comes with the next read.
+    const filters = this.client.capabilities.filters;
+    if (this.layout.hasHepaFilter) {
+      const filter = filters.includes('filter') ? 'filter' : 'outerFilter';
+      endpoint.addCommandHandler('HepaFilterMonitoring.resetCondition', async () => this.resetFilter(filter));
+    }
+    if (this.layout.hasCarbonFilter) endpoint.addCommandHandler('ActivatedCarbonFilterMonitoring.resetCondition', async () => this.resetFilter('innerFilter'));
     if (this.layout.hasSleepWind) {
       this.listen(endpoint, () =>
         endpoint.subscribeAttribute('FanControl', 'windSetting', (setting: { sleepWind?: boolean }, _previous: unknown, context: ActionContext) => {
@@ -560,6 +632,34 @@ export class DysonAccessory implements AccessoryEndpoints {
     return endpoint;
   }
 
+  private queueOscillation(isOn: boolean, control: string): void {
+    this.pending.requestOscillationOn(isOn);
+    this.scheduleCommand(`${control} ${isOn ? 'on' : 'off'}`);
+  }
+
+  /**
+   * Reset the life of a filter after a new one is fitted
+   *
+   * @param {Filter} filter The filter.
+   * @returns {Promise<void>} Resolves once the broker has the reset.
+   * @throws {Error} When the machine is not connected or the reset is not sent, so that the controller is told it failed.
+   */
+  private async resetFilter(filter: Filter): Promise<void> {
+    this.log.info(`"${this.name}" received a reset of its ${filter}`);
+    await this.enqueue(async () => {
+      try {
+        if (this.isSuspended) throw new Error('No Dyson account is signed in');
+        if (!this.isConnected) await this.connect();
+        await this.client.resetFilterLife(filter);
+      } catch (error) {
+        this.recordError(error);
+        this.log.error(`"${this.name}" did not take a reset of its ${filter}: ${getErrorMessage(error)}`);
+        throw error;
+      }
+      this.log.info(`"${this.name}" reset the life of its ${filter}`);
+    });
+  }
+
   private queueFanAuto(isOn: boolean): void {
     this.pending.requestFanAuto(isOn);
     this.scheduleCommand(`auto mode ${isOn ? 'on' : 'off'}`);
@@ -604,7 +704,14 @@ export class DysonAccessory implements AccessoryEndpoints {
       this.pending.clear();
       return;
     }
-    const machine = { state: this.state, capabilities: this.client.capabilities, lastManualFanSpeed: this.lastManualFanSpeed, isSweepSelect: this.layout.isSweepSelect };
+    const machine = {
+      state: this.state,
+      capabilities: this.client.capabilities,
+      lastManualFanSpeed: this.lastManualFanSpeed,
+      isSweepSelect: this.layout.isSweepSelect,
+      isTilt: this.layout.isTilt,
+      lastTiltAngle: this.lastTiltAngle,
+    };
     const control = this.pending.take(machine, () => readFanRequest(this.endpoint, this.layout.fanPositions));
     if (Object.keys(control).length > 0) {
       try {
@@ -650,8 +757,42 @@ export class DysonAccessory implements AccessoryEndpoints {
     this.lastError = undefined;
     this.lastErrorStatus = undefined;
     this.sensors = sensors;
+    if (shouldReadSensors) this.readFaultsWhenDue();
     await this.apply(state);
     return true;
+  }
+
+  /**
+   * Ask the machine for its faults, when they were never asked for or not for a while
+   *
+   * The answer comes outside the queue of reads and commands, so that a machine slow to answer holds up nothing, and a
+   * machine that does not answer is asked again at the next interval. Its answer reaches `receiveFaults` as well.
+   *
+   * @returns {void}
+   */
+  private readFaultsWhenDue(): void {
+    const now = Date.now();
+    if (this.faultsReadAt !== undefined && now - this.faultsReadAt < faultsIntervalInMs) return;
+    this.faultsReadAt = now;
+    void this.readFaults(this.client);
+  }
+
+  private async readFaults(client: MachineClient): Promise<void> {
+    try {
+      const faults = await client.getFaults();
+      if (this.client === client) this.receiveFaults(faults);
+    } catch (error) {
+      this.log.debug(`"${this.name}" did not tell its faults: ${getErrorMessage(error)}`);
+    }
+  }
+
+  private receiveFaults(faults: EnvironmentalCareFaults): void {
+    if (this.isDisposed) return;
+    const listed = listFaults(faults);
+    if (this.faults !== undefined && listed.join() === this.faults.join()) return;
+    if (listed.length > 0) this.log.warn(`"${this.name}" reports ${listed.join(', ')}`);
+    else if (this.faults !== undefined) this.log.info(`"${this.name}" reports no fault any more`);
+    this.faults = listed;
   }
 
   // A state the machine sent by itself, or the answer to a read of another client.
@@ -676,6 +817,7 @@ export class DysonAccessory implements AccessoryEndpoints {
   private async apply(state: EnvironmentalCareState): Promise<void> {
     this.state = state;
     if (state.fanSpeed !== null && state.autoMode !== true) this.lastManualFanSpeed = state.fanSpeed;
+    if (state.tiltAngleInDegrees !== null && state.tiltAngleInDegrees !== 'breeze') this.lastTiltAngle = state.tiltAngleInDegrees;
     // A controller wrote meanwhile: the command about to be sent reads these attributes.
     if (this.hasPendingCommand) return;
     try {

@@ -4,18 +4,17 @@
  * @author Calvin Che
  */
 
-import { AirQuality, ConcentrationMeasurement, FanControl } from 'matterbridge/matter/clusters';
+import { AirQuality, ConcentrationMeasurement, FanControl, ResourceMonitoring } from 'matterbridge/matter/clusters';
 
 import {
   clampHeatTarget,
   composeDeviceName,
-  fanModeScale,
   fanStepToPercent,
+  filterHoursToPercent,
   getAirQuality,
-  getFanModePick,
   getFanModeSequence,
+  getFilterChangeIndication,
   getNearestHumidityTarget,
-  getPickedSpeed,
   getSweep,
   getSweepAngles,
   getSweeps,
@@ -25,11 +24,13 @@ import {
   isOscillationSweep,
   oscillationSelectChoices,
   percentToFanStep,
+  toFilterCondition,
   toMatterHumidity,
   toMatterTemperature,
   toModeOptions,
+  toOscillationMode,
 } from '../src/mapping.js';
-import { createEmptySensors, createSensors } from './fakeDyson.js';
+import { capabilitiesOf, createEmptySensors, createFakeClient, createSensors, humidifyCool, purifierCool } from './fakeDyson.js';
 
 describe('mapping', () => {
   it('should turn each fan step into a percent that turns back into the same step', () => {
@@ -45,25 +46,6 @@ describe('mapping', () => {
     expect(percentToFanStep(10, 34)).toBe(3);
     expect(percentToFanStep(10, 35)).toBe(4);
     expect(percentToFanStep(10, 4)).toBe(1);
-  });
-
-  it('should tell a fan mode a controller picked from one a percent set, by the middle percent Matterbridge gives a pick', () => {
-    expect(getFanModePick(FanControl.FanMode.Low, 17, fanModeScale)).toBe('slowest');
-    expect(getFanModePick(FanControl.FanMode.Medium, 50, fanModeScale)).toBe('middle');
-    expect(getFanModePick(FanControl.FanMode.High, 84, fanModeScale)).toBe('fastest');
-    expect(getFanModePick(FanControl.FanMode.High, 90, fanModeScale)).toBeUndefined();
-    expect(getFanModePick(FanControl.FanMode.Auto, null, fanModeScale)).toBeUndefined();
-    // With two fan modes or one, the shares are halves or the whole.
-    expect(getFanModePick(FanControl.FanMode.Low, 26, [FanControl.FanMode.Low, FanControl.FanMode.High])).toBe('slowest');
-    expect(getFanModePick(FanControl.FanMode.High, 76, [FanControl.FanMode.Low, FanControl.FanMode.High])).toBe('fastest');
-    expect(getFanModePick(FanControl.FanMode.High, 51, [FanControl.FanMode.High])).toBe('slowest');
-  });
-
-  it('should find the slowest, the middle and the fastest speed', () => {
-    expect(getPickedSpeed([1, 2, 3, 4, 5, 6, 7, 8, 9, 10], 'slowest')).toBe(1);
-    expect(getPickedSpeed([1, 2, 3, 4, 5, 6, 7, 8, 9, 10], 'middle')).toBe(5);
-    expect(getPickedSpeed([1, 2, 3, 4, 5, 6, 7, 8, 9, 10], 'fastest')).toBe(10);
-    expect(getPickedSpeed(['a', 'b', 'c', 'd', 'e', 'f'], 'middle')).toBe('c');
   });
 
   it('should pick the fan mode sequence with or without auto', () => {
@@ -85,6 +67,30 @@ describe('mapping', () => {
     expect(isOscillating('scan')).toBe(true);
     expect(isOscillating('idleOff')).toBe(false);
     expect(isOscillating(null)).toBe(false);
+  });
+
+  it('should turn the oscillation of a machine that stands by on and off with its idle modes', () => {
+    const { state } = createFakeClient(humidifyCool);
+    const modes = capabilitiesOf(humidifyCool).oscillationModes;
+    expect(toOscillationMode(true, state, modes)).toBe('on');
+    expect(toOscillationMode(false, undefined, modes)).toBe('off');
+    expect(toOscillationMode(true, { ...state, oscillationState: 'idle' }, modes)).toBe('idleOn');
+    expect(toOscillationMode(false, { ...state, oscillationMode: 'idleOn' }, modes)).toBe('idleOff');
+    expect(toOscillationMode(true, { ...state, oscillationMode: 'idleOff' }, modes)).toBe('idleOn');
+    // A basic oscillation has no idle modes.
+    expect(toOscillationMode(true, { ...state, oscillationState: 'idle' }, ['off', 'on'])).toBe('on');
+    expect(capabilitiesOf(purifierCool).oscillationModes).toContain('idleOn');
+  });
+
+  it('should show the life left in a filter, and warn when it is about to run out', () => {
+    expect(filterHoursToPercent(4300)).toBe(100);
+    expect(filterHoursToPercent(2150)).toBe(50);
+    expect(filterHoursToPercent(5000)).toBe(100);
+    expect(toFilterCondition(84.6)).toBe(85);
+    expect(toFilterCondition(-3)).toBe(0);
+    expect(getFilterChangeIndication(11)).toBe(ResourceMonitoring.ChangeIndication.Ok);
+    expect(getFilterChangeIndication(10)).toBe(ResourceMonitoring.ChangeIndication.Warning);
+    expect(getFilterChangeIndication(0)).toBe(ResourceMonitoring.ChangeIndication.Critical);
   });
 
   it('should offer the widths a machine takes as sweeps, but not one direction', () => {

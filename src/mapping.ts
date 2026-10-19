@@ -21,8 +21,22 @@
  * limitations under the License.
  */
 
-import { type EnvironmentalCareSensors, FAN_SPEEDS, type FanSpeed, type OscillationAngles, type OscillationMode, type OscillationPresetAngle } from 'dyson-control';
-import { AirQuality, ConcentrationMeasurement, FanControl, type ModeSelect } from 'matterbridge/matter/clusters';
+import {
+  type EnvironmentalCareSensors,
+  type EnvironmentalCareState,
+  FAN_SPEEDS,
+  FIND_AND_FOLLOW_MODES,
+  type FanSpeed,
+  type FindAndFollowMode,
+  type OscillationAngles,
+  type OscillationMode,
+  type OscillationPresetAngle,
+  TILT_ANGLES,
+  type TiltAngle,
+  WATER_HARDNESSES,
+  type WaterHardness,
+} from 'dyson-control';
+import { AirQuality, ConcentrationMeasurement, FanControl, type ModeSelect, ResourceMonitoring } from 'matterbridge/matter/clusters';
 
 import { maxDeviceNameLength } from './config.js';
 
@@ -75,6 +89,27 @@ export type HumiditySelectValue = 'off' | 'auto' | HumidityTarget;
 export const humiditySelectChoices: SelectChoices<HumiditySelectValue> = {
   values: ['off', 'auto', ...humidityTargets],
   labels: { 'off': 'Off', 'auto': 'Auto', '30': '30 %', '40': '40 %', '50': '50 %', '60': '60 %', '70': '70 %' },
+};
+
+/** The angles a machine that tilts is tilted to on its tilt select, and its breeze, which tilts it up and down. */
+export const tiltSelectChoices: SelectChoices<TiltAngle> = {
+  values: TILT_ANGLES,
+  labels: { '0': '0°', '25': '25°', '50': '50°', 'breeze': 'Breeze' },
+};
+
+/** The angle a machine that tilts goes back to when its breeze is turned off, until it is seen at another. */
+export const defaultTiltAngle: TiltAngle = 0;
+
+/** Off, follow and scan on the find and follow select: `on` follows the people the machine finds, and `scan` looks for them. */
+export const findAndFollowSelectChoices: SelectChoices<FindAndFollowMode> = {
+  values: FIND_AND_FOLLOW_MODES,
+  labels: { off: 'Off', on: 'Follow', scan: 'Scan' },
+};
+
+/** The water hardnesses on the water hardness select, which set how often a humidifier asks for a clean cycle. */
+export const waterHardnessSelectChoices: SelectChoices<WaterHardness> = {
+  values: WATER_HARDNESSES,
+  labels: { soft: 'Soft', medium: 'Medium', hard: 'Hard' },
 };
 
 /**
@@ -130,63 +165,34 @@ export function getFanModeSequence(hasAuto: boolean): FanControl.FanModeSequence
   return hasAuto ? FanControl.FanModeSequence.OffLowMedHighAuto : FanControl.FanModeSequence.OffLowMedHigh;
 }
 
-/** The fan modes of every Dyson fan control between off and auto, from the slowest third of the percent to the fastest. */
-export const fanModeScale: readonly FanControl.FanMode[] = [FanControl.FanMode.Low, FanControl.FanMode.Medium, FanControl.FanMode.High];
-
-/** The speed a fan mode a controller picks stands for: the slowest speed, the middle one or the fastest. */
-export type FanModePick = 'slowest' | 'middle' | 'fastest';
-
-/**
- * Tell which speed a fan mode a controller picked stands for, from what the fan control holds after the pick
- *
- * A controller that picks a fan mode makes the fan control server of Matterbridge set the percent to the middle of that
- * fan mode's share of 100, and one that sets a percent makes it set the fan mode the percent falls in. The two look the
- * same afterwards but for the percent, so a fan mode that holds the middle percent of its share was picked.
- *
- * Edge cases:
- *  - a percent set to exactly that middle, such as 84 % for High, counts as the fan mode picked
- *  - Off, Auto and a fan mode outside the scale -> undefined
- *
- * @param {FanControl.FanMode} fanMode The fan mode the fan control holds.
- * @param {unknown} percent The percent the fan control holds.
- * @param {readonly FanControl.FanMode[]} scale The fan modes of the fan control from Low to High, as its sequence has them.
- * @returns {FanModePick | undefined} The speed the fan mode stands for, or undefined when no fan mode was picked.
- */
-export function getFanModePick(fanMode: FanControl.FanMode, percent: unknown, scale: readonly FanControl.FanMode[]): FanModePick | undefined {
-  const index = scale.indexOf(fanMode);
-  if (index === -1) return undefined;
-  // As Matterbridge cuts 100 into the fan modes of the sequence.
-  const start = index === 0 ? 1 : Math.floor((100 * index) / scale.length) + 1;
-  const end = Math.floor((100 * (index + 1)) / scale.length);
-  if (percent !== Math.round((start + end) / 2)) return undefined;
-  if (index === 0) return 'slowest';
-  return index === scale.length - 1 ? 'fastest' : 'middle';
-}
-
-/**
- * Find the speed a fan mode pick stands for
- *
- * @param {readonly T[]} speeds The speeds of the machine, slowest first, without its auto mode.
- * @param {FanModePick} pick The fan mode pick.
- * @returns {T} The first speed, the one nearest 50 % or the last.
- */
-export function getPickedSpeed<T>(speeds: readonly T[], pick: FanModePick): T {
-  if (pick === 'slowest') return speeds[0];
-  if (pick === 'fastest') return speeds[speeds.length - 1];
-  return speeds[percentToFanStep(speeds.length, 50) - 1];
-}
-
 /**
  * Tell whether an oscillation mode is the machine oscillating
  *
- * What a machine means by `idleOn`, `idleOff` and `scan` is not known: see the UNSUPPORTED.md of dyson-control. The two
- * whose name says on are taken as oscillating.
+ * `idleOn` is the oscillation on while the machine stands by with it paused. A machine reports `scan` and is never sent
+ * it, and what it means is not known: see the UNSUPPORTED.md of dyson-control. It is taken as oscillating.
  *
  * @param {OscillationMode | null} mode The oscillation mode the machine reports.
  * @returns {boolean} True for `on`, `idleOn` and `scan`.
  */
 export function isOscillating(mode: OscillationMode | null): boolean {
   return mode === 'on' || mode === 'idleOn' || mode === 'scan';
+}
+
+/**
+ * Pick the oscillation mode that turns the oscillation on or off
+ *
+ * A machine whose oscillation is paused while it stands by takes `idleOn` and `idleOff` in place of `on` and `off`, as
+ * dyson-control has it. A machine that has no idle modes always takes `on` and `off`.
+ *
+ * @param {boolean} isOn Whether the machine is to oscillate.
+ * @param {EnvironmentalCareState | undefined} state The last state read, or undefined when the machine never answered.
+ * @param {readonly OscillationMode[]} modes The oscillation modes the machine takes.
+ * @returns {OscillationMode} The mode to send.
+ */
+export function toOscillationMode(isOn: boolean, state: EnvironmentalCareState | undefined, modes: readonly OscillationMode[]): OscillationMode {
+  const isIdle = state?.oscillationState === 'idle' || state?.oscillationMode === 'idleOn' || state?.oscillationMode === 'idleOff';
+  if (isIdle && modes.includes('idleOn')) return isOn ? 'idleOn' : 'idleOff';
+  return isOn ? 'on' : 'off';
 }
 
 /**
@@ -272,6 +278,43 @@ export function getNearestHumidityTarget(percent: number): HumidityTarget {
     if (Math.abs(target - percent) <= Math.abs(nearest - percent)) nearest = target;
   }
   return nearest;
+}
+
+/** The life of a new filter of a machine of the first generation, in hours, which it counts down from. */
+const firstGenerationFilterLifeInHours = 4300;
+
+/** The life left, in percent, at or below which a filter is about to need replacing. */
+export const filterWarningInPercent = 10;
+
+/**
+ * Convert the life left in the filter of a machine of the first generation to a percent
+ *
+ * @param {number} hours The hours left, from 4300 when new.
+ * @returns {number} The percent left, rounded and clamped to 0..100.
+ */
+export function filterHoursToPercent(hours: number): number {
+  return toFilterCondition((hours / firstGenerationFilterLifeInHours) * 100);
+}
+
+/**
+ * Convert the life left in a filter, as a machine reports it, to the condition Matter shows
+ *
+ * @param {number} percent The life left, in percent.
+ * @returns {number} The percent rounded, and clamped to 0..100.
+ */
+export function toFilterCondition(percent: number): number {
+  return Math.min(Math.max(Math.round(percent), 0), 100);
+}
+
+/**
+ * Tell whether a filter needs replacing, from the life left in it
+ *
+ * @param {number} percent The life left, in percent.
+ * @returns {ResourceMonitoring.ChangeIndication} Critical when none is left, a warning at 10 % or less, and fine otherwise.
+ */
+export function getFilterChangeIndication(percent: number): ResourceMonitoring.ChangeIndication {
+  if (percent <= 0) return ResourceMonitoring.ChangeIndication.Critical;
+  return percent <= filterWarningInPercent ? ResourceMonitoring.ChangeIndication.Warning : ResourceMonitoring.ChangeIndication.Ok;
 }
 
 /**

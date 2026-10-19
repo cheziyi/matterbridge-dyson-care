@@ -65,8 +65,9 @@ export interface EndpointIdentity {
  * Add the fan control of a device, with the features its layout has
  *
  * Every Dyson fan control has ten speeds and the step command. Each feature beside them is the native Matter place of a
- * control: the fan mode Auto for the auto mode, the left and right rocking for the oscillation, the sleep wind for the
- * night mode and the airflow direction for the direction of the air.
+ * control: the fan mode Auto for the auto mode, the left and right rocking for the oscillation, or the up and down
+ * rocking for the breeze of a machine that tilts, the sleep wind for the night mode and the airflow direction for the
+ * direction of the air.
  *
  * @param {MatterbridgeEndpoint} endpoint The main endpoint of the device.
  * @param {AccessoryLayout} layout How the controls of the device are laid out.
@@ -88,8 +89,12 @@ function addFanControl(endpoint: MatterbridgeEndpoint, layout: AccessoryLayout):
   if (layout.hasFanAuto) features.push(FanControl.Feature.Auto);
   if (layout.hasRocking) {
     features.push(FanControl.Feature.Rocking);
-    // A Dyson machine turns from side to side alone.
-    Object.assign(state, { rockSupport: { rockLeftRight: true, rockUpDown: false, rockRound: false }, rockSetting: { rockLeftRight: false, rockUpDown: false, rockRound: false } });
+    // A Dyson machine turns from side to side, or tilts up and down, never both.
+    const isTilt = layout.isTilt;
+    Object.assign(state, {
+      rockSupport: { rockLeftRight: !isTilt, rockUpDown: isTilt, rockRound: false },
+      rockSetting: { rockLeftRight: false, rockUpDown: false, rockRound: false },
+    });
   }
   if (layout.hasSleepWind) {
     features.push(FanControl.Feature.Wind);
@@ -105,6 +110,8 @@ function addFanControl(endpoint: MatterbridgeEndpoint, layout: AccessoryLayout):
 /**
  * Create the main endpoint of a device: an air purifier or a fan, with on/off and a fan control
  *
+ * An air purifier has the filters its layout has, each full and fitted until the first read.
+ *
  * @param {EndpointIdentity} identity The device the endpoint belongs to.
  * @param {AccessoryLayout} layout How the controls of the device are laid out.
  * @returns {MatterbridgeEndpoint} The endpoint, with its clusters and nothing subscribed yet.
@@ -117,6 +124,8 @@ export function createMainEndpoint(identity: EndpointIdentity, layout: Accessory
     .createDefaultPowerSourceWiredClusterServer()
     .createOnOffClusterServer(false);
   addFanControl(endpoint, layout);
+  if (layout.hasHepaFilter) endpoint.createDefaultHepaFilterMonitoringClusterServer();
+  if (layout.hasCarbonFilter) endpoint.createDefaultActivatedCarbonFilterMonitoringClusterServer();
   return endpoint.addRequiredClusters();
 }
 

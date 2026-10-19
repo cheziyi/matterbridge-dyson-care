@@ -21,13 +21,54 @@
  * limitations under the License.
  */
 
-import type { DysonMachine, EnvironmentalCareCapabilities } from 'dyson-control';
+import type { CleanCycleState, DysonMachine, EnvironmentalCareCapabilities, EnvironmentalCareState, Filter } from 'dyson-control';
 import { isValidObject, isValidString } from 'matterbridge/utils';
 
 import { type DysonDeviceConfig, isValidSerialNumber, normalizeDeviceName, parseDeviceConfig } from '../config.js';
 import type { AvailableControls, ReportedSensors } from '../controls.js';
 import { getErrorMessage } from '../errors.js';
+import { filterHoursToPercent, toFilterCondition } from '../mapping.js';
 import type { MachineSupport, ProbeResult } from './probe.js';
+
+/** What a running machine last told about itself beside its controls: the page shows it under the device. */
+export interface MachineReport {
+  /** The life left in each filter the machine reports, in percent. */
+  filters: { filter: Filter; lifeInPercent: number }[];
+  /** The clean cycle of a humidifier that runs one. */
+  cleanCycle?: {
+    state: CleanCycleState | null;
+    remainingTimeToNextInHours: number | null;
+    remainingTimeOfActiveInMinutes: number | null;
+  };
+  /** Each fault the machine reports by Dyson's name, such as `filterReplacement`, or undefined until it has reported its faults. */
+  faults?: string[];
+}
+
+/**
+ * Gather what a running machine last told about itself
+ *
+ * @param {EnvironmentalCareState | undefined} state The last state read, or undefined when the machine never answered.
+ * @param {string[] | undefined} faults The faults it last reported.
+ * @returns {MachineReport | undefined} The report, or undefined when the machine has told nothing yet.
+ */
+export function getMachineReport(state: EnvironmentalCareState | undefined, faults: string[] | undefined): MachineReport | undefined {
+  if (state === undefined && faults === undefined) return undefined;
+  const report: MachineReport = { filters: [] };
+  if (state !== undefined) {
+    if (state.filterLifeInHours !== null) report.filters.push({ filter: 'filter', lifeInPercent: filterHoursToPercent(state.filterLifeInHours) });
+    if (state.outerFilterLifeInPercent !== null) report.filters.push({ filter: 'outerFilter', lifeInPercent: toFilterCondition(state.outerFilterLifeInPercent) });
+    if (state.innerFilterLifeInPercent !== null) report.filters.push({ filter: 'innerFilter', lifeInPercent: toFilterCondition(state.innerFilterLifeInPercent) });
+    if (state.cleanCycleState !== null || state.remainingTimeToNextCleanCycleInHours !== null) {
+      report.cleanCycle = {
+        state: state.cleanCycleState,
+        remainingTimeToNextInHours: state.remainingTimeToNextCleanCycleInHours,
+        remainingTimeOfActiveInMinutes: state.remainingTimeOfActiveCleanCycleInMinutes,
+      };
+    }
+  }
+  if (faults !== undefined) report.faults = faults;
+  return report;
+}
 
 /** A stored device as the setup page sees it, with how it is doing. */
 export type SetupDevice = DysonDeviceConfig & {
@@ -40,6 +81,8 @@ export type SetupDevice = DysonDeviceConfig & {
   controls?: AvailableControls;
   /** Every reading the machine is known to have given. */
   reportedSensors: ReportedSensors;
+  /** What the machine last told about itself, while it runs. */
+  report?: MachineReport;
 };
 
 /** The account as the setup page sees it: never its token. */
@@ -84,6 +127,8 @@ export interface SetupReplies {
   /** Nothing but that it worked. Matterbridge answers a DELETE with 204 and no body. */
   'DELETE account': object;
   'POST machines': { machines: FoundMachine[] };
+  /** The state once the machine list of the account was read again, as the page asks when it opens. */
+  'POST sync': { state: SetupState };
   'POST probe': { result: ProbeResult };
   'POST device': { state: SetupState };
   'DELETE device': object;
@@ -100,6 +145,7 @@ export interface SetupPlatform {
   signIn: (request: SignInRequest) => Promise<void>;
   signOut: () => Promise<void>;
   listMachines: () => Promise<FoundMachine[]>;
+  syncMachines: () => Promise<void>;
   probe: (machine: DysonMachine) => Promise<ProbeResult>;
   saveDevice: (device: DysonDeviceConfig) => Promise<void>;
   removeDevice: (serialNumber: string) => Promise<boolean>;
@@ -214,6 +260,10 @@ async function handlePost(platform: SetupPlatform, path: string, body: Record<st
     return { ok: true, state: await platform.getSetupState() };
   }
   if (path === 'machines') return { ok: true, machines: await platform.listMachines() };
+  if (path === 'sync') {
+    await platform.syncMachines();
+    return { ok: true, state: await platform.getSetupState() };
+  }
   if (path === 'probe') {
     const machine = parseDysonMachine(body.machine);
     if (machine === undefined) return fail('The machine has no valid serial number or type');
@@ -231,8 +281,8 @@ async function handlePost(platform: SetupPlatform, path: string, body: Record<st
 /**
  * Serve one request of the setup page
  *
- * Paths: `GET state`, `GET countries`, `POST login-code`, `POST login`, `DELETE account`, `POST machines`, `POST probe`,
- * `POST device` and `DELETE device?serialNumber=`. A password is accepted, used once and never stored or returned, and
+ * Paths: `GET state`, `GET countries`, `POST login-code`, `POST login`, `DELETE account`, `POST machines`, `POST sync`,
+ * `POST probe`, `POST device` and `DELETE device?serialNumber=`. A password is accepted, used once and never stored or returned, and
  * the token of the account is never returned.
  *
  * Edge cases:

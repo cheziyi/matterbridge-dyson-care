@@ -50,9 +50,9 @@ Open the plugin frontend from the plugin's row on the Matterbridge home page. It
 1. **Sign in.** Enter the email address and the country of your Dyson account. Dyson emails you a code: enter it with your password. The password is used once and not stored.
 2. **Find.** The page lists the machines of your account, and says why it cannot control one, such as a robot vacuum or a machine of a type dyson-control does not know yet.
 3. **Connect.** For each machine you picked, the plugin checks that it answers through the Dyson cloud, and reads which sensors it has.
-4. **Options.** The name the machine gets in Matter, starting from its room name in the Dyson app, and how the fan, the oscillation, the night mode, the airflow direction, the heating, the humidifying and the readings appear in Matter, from what the machine can do. Start from a [preset](#presets) or choose each one yourself.
+4. **Options.** The name the machine gets in Matter, starting from its room name in the Dyson app, and how the fan, the oscillation or the tilt, the night mode, the airflow direction, the find and follow, the heating, the humidifying, the water hardness, the filters and the readings appear in Matter, from what the machine can do. Start from a [preset](#presets) or choose each one yourself.
 
-Afterwards the same page lists your machines with their status: online, connecting while a machine just added or rebuilt connects through the cloud, not answering, or not started. From there you can add more, change the options of one, reconnect one that stopped answering, remove one, sign in again, or sign out. None of this needs a Matterbridge restart.
+Afterwards the same page lists your machines with their status: online, connecting while a machine just added or rebuilt connects through the cloud, not answering, or not started. Under each machine it shows the life left in its filters, when its next clean cycle is due, and the faults it reports, such as a filter to replace or an empty tank. From there you can add more, change the options of one, reconnect one that stopped answering, remove one, sign in again, or sign out. None of this needs a Matterbridge restart.
 
 ## How a machine appears in Matter
 
@@ -61,11 +61,14 @@ Afterwards the same page lists your machines with their status: online, connecti
 | Air purifier      | The machine, with its power and its fan speed. You can make it a fan instead: see [Air purifier or fan](#air-purifier-or-fan)         |
 | Fan speed         | Speeds 1 to 10, as steps or as a percentage                                                                                           |
 | Auto mode         | Your choice, on a machine that has one: see [Auto mode](#auto-mode)                                                                   |
-| Oscillation       | Your choice: see [Oscillation](#oscillation)                                                                                          |
+| Oscillation       | Your choice, or the tilt of a machine that tilts: see [Oscillation](#oscillation) and [Tilt](#tilt)                                   |
 | Night mode        | Your choice: see [Night mode and airflow direction](#night-mode-and-airflow-direction)                                                |
 | Airflow direction | Your choice, on a machine that blows its air to the front or the back                                                                 |
+| Find and follow   | A switch or a mode select, on a machine that follows the people it finds: see [Find and follow](#find-and-follow)                     |
 | Heating           | A thermostat or a switch, on a heater: see [Heating](#heating)                                                                        |
 | Humidifying       | Switches or a mode select, on a humidifier: see [Humidifying](#humidifying)                                                           |
+| Water hardness    | A mode select, on a humidifier that runs a clean cycle: see [Humidifying](#humidifying)                                               |
+| Filters           | The life left in each filter, on every air purifier: see [Filters](#filters)                                                          |
 | Readings          | An air quality sensor, a temperature sensor and a humidity sensor, each once the machine gives its reading: see [Readings](#readings) |
 
 ### How it is built in Matter
@@ -76,10 +79,10 @@ Matter describes a device as endpoints. Each endpoint has one or more device typ
 flowchart TD
     bridge["Matterbridge<br/>Aggregator"]
     subgraph device["One device in a Matter app"]
-        main["<b>Living Room</b><br/>Air Purifier or Fan, Bridged Node, Power Source<br/>On/Off, Fan Control, with Rocking, Wind and Airflow Direction when they are there"]
+        main["<b>Living Room</b><br/>Air Purifier or Fan, Bridged Node, Power Source<br/>On/Off, Fan Control, with Rocking, Wind and Airflow Direction when they are there<br/>HEPA and Activated Carbon Filter Monitoring on an air purifier"]
         thermostat["Thermostat<br/>Thermostat, heating only"]
         switches["On/Off Plug-in Unit, one for each switch<br/>tagged 1 Auto Mode, 2 Night Mode and so on<br/>On/Off"]
-        selects["Mode Select, for the oscillation and the target humidity<br/>Mode Select"]
+        selects["Mode Select, one for each select: the oscillation or the tilt,<br/>the find and follow, the target humidity and the water hardness<br/>Mode Select"]
         air["Air Quality Sensor<br/>Air Quality, and a concentration measurement for each pollutant"]
         sensors["Temperature Sensor, Humidity Sensor<br/>Temperature Measurement, Relative Humidity Measurement"]
     end
@@ -102,10 +105,12 @@ A solid line is always there. A dashed one is there when you choose it in the se
 | Fan                 | 0x002B | The machine, as a fan                                 |
 | Thermostat          | 0x0301 | The heating of a heater                               |
 | On/Off Plug-in Unit | 0x010A | Each switch                                           |
-| Mode Select         | 0x0027 | The oscillation select and the target humidity select |
+| Mode Select         | 0x0027 | Each select                                           |
 | Air Quality Sensor  | 0x002C | The air quality and the pollutants                    |
 | Temperature Sensor  | 0x0302 | The room temperature                                  |
 | Humidity Sensor     | 0x0307 | The room humidity                                     |
+
+An air purifier also has the HEPA Filter Monitoring (0x0071) and Activated Carbon Filter Monitoring (0x0072) clusters for its filters: see [Filters](#filters).
 
 ### Air purifier or fan
 
@@ -123,7 +128,7 @@ Both have an on/off and a fan control. Setting the fan to off or 0 turns the mac
 | Steps      | Ten steps, one for each speed, and a percentage beside them                                            |
 | Percentage | A slider from 0 to 100. The plugin rounds it to the nearest speed: 10 % is speed 1, and 100 % speed 10 |
 
-Matter also has the fan modes Low, Medium and High, which apps show as buttons or reach by voice. Each picks a speed of the machine: Low the slowest, Medium the one nearest 50 %, and High the fastest, wherever auto is on the scale. Matterbridge sets a fan mode picked to the middle percentage of its third, such as 84 % for High, so a slider moved to exactly that percentage counts as the fan mode, and picks that speed instead of the nearest one. Low is speed 1, Medium speed 5 and High speed 10.
+Matter also has the fan modes Low, Medium and High, which apps show as buttons or reach by voice. Matterbridge sets a fan mode picked to the middle percentage of its third, 17 %, 50 % or 84 %, which the plugin rounds to the nearest speed as it does any percentage: Low is speed 2, Medium speed 5 and High speed 8.
 
 ### Auto mode
 
@@ -136,7 +141,7 @@ In its auto mode the machine picks its fan speed from the air it measures. On a 
 | The first step       | Below speed 1: step 1, or the bottom of the slider                                                                                                           |
 | The last step        | Above speed 10: the top step, or 100 %                                                                                                                       |
 
-A step takes the place of the Auto fan mode, because in that mode Matter holds no percent: the fan then has eleven steps. Turning the auto mode off on a machine that is off leaves it off.
+A step takes the place of the Auto fan mode, because in that mode Matter holds no percent: the fan then has eleven steps. The fan modes then round to the nearest of those: with auto first, Low is speed 1, Medium speed 5 and High speed 8, and with auto last, Low is speed 2, Medium speed 6 and High speed 9. Turning the auto mode off on a machine that is off leaves it off.
 
 ### Oscillation
 
@@ -155,7 +160,22 @@ The mode select offers what the machine takes:
 | One with preset angles              | Its presets: 45°, 90°, 180° and 350°, or 15°, 40° and 70° on some models                                                            |
 | A humidifier whose barrel turns     | 45°, 90° and Breeze                                                                                                                 |
 
-A machine that oscillates only on and off gets no mode select, and nor does one whose firmware takes its two angles only as one direction, as on the types 635 and 739: the oscillation is a switch on them. A machine that tilts gets no oscillation control at all: dyson-control does not set the tilt.
+A machine that oscillates only on and off gets no mode select, and nor does one whose firmware takes its two angles only as one direction, as on the types 635 and 739: the oscillation is a switch on them.
+
+A machine that pauses its oscillation while it stands by takes it on and off in modes of their own, which the plugin sends in place of on and off while the machine stands by, as dyson-control asks.
+
+### Tilt
+
+The Big+Quiet tilts in place of oscillating: to 0°, 25° or 50°, or back and forth in its breeze. Its oscillation options are for the tilt:
+
+| Option        | In Matter                                                                                                                                       |
+| ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| On the fan    | The up and down rocking of the fan control. On breezes, and off tilts the machine back to the angle it was at, or to 0°. Not every app shows it |
+| A switch      | A switch named `<name> Oscillation`, which breezes the same way                                                                                 |
+| A mode select | A mode select named `<name> Tilt`, with 0°, 25°, 50° and Breeze                                                                                 |
+| Not shown     | The tilt stays as the Dyson app sets it                                                                                                         |
+
+A tilt turns the machine on when the Dyson app sets it. From Matter it leaves a machine that is off as it is, as turning the auto mode off does.
 
 ### Night mode and airflow direction
 
@@ -166,6 +186,16 @@ A machine that oscillates only on and off gets no mode select, and nor does one 
 | Not shown  | The night mode stays as the Dyson app sets it                               | The direction stays as the Dyson app sets it                                                  |
 
 The airflow direction is offered on a machine that blows its air to the front or the back.
+
+### Find and follow
+
+A machine that follows people, such as the Purifier Cool of variant N, finds the people in the room and turns to follow them. It runs only while the machine is on, so turning it on turns the machine on.
+
+| Option        | In Matter                                                                                                                 |
+| ------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| A switch      | A switch named `<name> Find and Follow`. On follows the people the machine finds, and it shows on while it looks for them |
+| A mode select | A mode select named `<name> Find and Follow`, with Off, Follow and Scan, which looks for people                           |
+| Not shown     | Find and follow stays as the Dyson app sets it                                                                            |
 
 ### Heating
 
@@ -188,6 +218,19 @@ Matter has no humidifier, so on a humidifier the humidifying appears in one of t
 | Switches      | A switch named `<name> Humidify`, which humidifies to the target set in the Dyson app, and one named `<name> Auto Humidify` on a machine that picks its own target                                 |
 | A mode select | A mode select named `<name> Target Humidity`, with Off, Auto on a machine that has it, and 30 %, 40 %, 50 %, 60 % and 70 %. A target the machine holds between two of them shows as the nearer one |
 | Not shown     | The humidifying stays as the Dyson app sets it                                                                                                                                                     |
+
+A humidifier that runs a clean cycle asks for one as often as the hardness of its water says: the harder the water, the sooner. It can get a mode select named `<name> Water Hardness`, with Soft, Medium and Hard. The setup page shows when its next clean cycle is due, and how long one that runs has left.
+
+### Filters
+
+An air purifier shows the life left in its filters, as Matter has it for a purifier. It needs no choice in the setup: an app that does not show filters leaves them out.
+
+| Machine                     | In Matter                                                                                                                                           |
+| --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| One of the first generation | The HEPA filter, with the hours left of the 4300 a new filter has, as a percentage                                                                  |
+| A later one                 | The HEPA filter, from the outer filter, and the activated carbon filter, from the inner filter, which shows as not fitted when the machine has none |
+
+A filter warns that it is about to need replacing at 10 % or less, and needs replacing at 0 %. Resetting a filter in a Matter app, after fitting a new one, resets its life on the machine. Matter has filters on an air purifier alone, so a machine that appears as a fan shows none, and a machine that reports no filter life, such as the Cool Tower, has no filters in Matter. Which apps show the filters has not been tested with this plugin.
 
 ### Mode selects
 
@@ -233,6 +276,8 @@ In the Options step, a preset fills in every choice above for what the machine c
 | Google Home         | Steps      | A switch   | Switches                | Not shown         | Thermostat | Switches      | No switch             | All     | No                       |
 | Full Matter support | Steps      | On the fan | On the fan              | On the fan        | Thermostat | A mode select | A switch              | All     | Yes                      |
 
+Find and follow is a switch in the Apple Home and Google Home presets and a mode select in the Full Matter support preset, which alone adds the water hardness select: the hardness is set once, rather than used every day.
+
 Every preset makes a machine that measures the air an air purifier, and one that does not a fan. Apple Home and Google Home are not known to show the rocking, the sleep wind or the airflow direction of a fan control, which is why their presets use switches for them. The Google Home preset adds a switch for the auto mode as well, and the Apple Home preset leaves the auto mode on the fan control alone. This has not been tested with this plugin: try the native places in your app, and pick the switches where they do not show.
 
 ### One device or several
@@ -254,8 +299,8 @@ Changing the choice builds the machine again in Matter, so a Matter app takes it
 
 The plugin knows each machine by its **serial number**, which is also the serial number it has in Matter. A switch, a mode select or a sensor that is a device of its own has that serial number with a dash and a letter after it, such as `NK6-EU-MHA0000A-N` for the night mode switch:
 
-- **The firmware is kept up to date.** The plugin reads the machine list of your account when it starts and every 15 minutes, and takes the firmware each machine runs now.
-- **Each device has the name you give it in the setup page**, which starts as the room name of the Dyson app, followed by a number when another device has that name already, such as `Bedroom 2`. A new room name in the Dyson app does not change it. No two devices share a name, because the name is what Matter shows and what its switches and sensors are named after.
+- **The firmware is kept up to date.** The plugin reads the machine list of your account when it starts, every 15 minutes and when you open the setup page, and takes the firmware each machine runs now.
+- **Each device has the name you give it in the setup page**, which starts as the room name of the Dyson app, followed by a number when another device has that name already, such as `Bedroom 2`. A new room name in the Dyson app does not change it: the options of the device show the new one beside its type and serial number, as soon as you open the setup page again. No two devices share a name, because the name is what Matter shows and what its switches and sensors are named after.
 - **A new name builds the device again in Matter**, with the same serial number. A Matter app may take it for a new device, and ask you again for its room and its automations.
 - **What each machine can do** is read from its type, its variant and its firmware capabilities, as the cloud reports them. When a firmware update gives a machine other controls, it is built again in Matter and a setting it no longer takes is reset.
 - **The readings each machine has given** are kept in the plugin's storage, so that its sensors are there from the start after a restart.
@@ -278,7 +323,8 @@ A stored device that this version of the plugin cannot read, for example one sto
 - **Commands are grouped.** A Matter app often changes several things at once. The plugin collects the changes of 300 milliseconds and sends them to the machine as one command.
 - **A device is reported as unreachable** after two reads in a row fail, or when its connection to the cloud closes and does not open again. It is reachable again on the first read that works.
 - **The setup page is as open as Matterbridge itself.** Anyone who can reach the Matterbridge frontend can use it, and so control the machines of the signed-in account. It never returns the stored sign-in token.
-- **Not in Matter:** the filter life, the sleep timer, the tilt of a machine that tilts, and the find and follow of a machine that has it. A machine on the RabbitMQ broker of the Dyson cloud, and an account that signs in with a mobile number, are not supported by dyson-control.
+- **Faults are logged.** The plugin asks a machine for its faults when it first reads it and every 15 minutes after, and takes those it sends as they change. It logs each change, and the setup page shows them.
+- **Not in Matter:** the sleep timer, the clean cycle and the faults, which the setup page shows instead. A machine on the RabbitMQ broker of the Dyson cloud, and an account that signs in with a mobile number, are not supported by dyson-control.
 
 ## Development
 

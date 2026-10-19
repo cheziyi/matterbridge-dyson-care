@@ -21,7 +21,7 @@
  * limitations under the License.
  */
 
-import type { EnvironmentalCareCapabilities, EnvironmentalCareSensors } from 'dyson-control';
+import type { EnvironmentalCareCapabilities, EnvironmentalCareSensors, TiltAngle } from 'dyson-control';
 
 import type { DysonDeviceConfig } from './config.js';
 import { getSweeps, type OscillationSelectValue } from './mapping.js';
@@ -33,10 +33,14 @@ export type OscillationAngleChoice = Exclude<OscillationSelectValue, 'off'>;
 export interface AvailableControls {
   /** Whether the machine picks the fan speed itself in its auto mode. */
   hasAutoMode: boolean;
-  /** Whether apps can turn the oscillation on and off. */
+  /** Whether apps can turn the oscillation on and off: for a machine that tilts, its breeze. */
   hasOscillation: boolean;
-  /** The angles an oscillation select can offer, narrowest first: the preset angles of the machine, or the sweeps of one that takes two angles. Empty when it can have no oscillation select. */
+  /** The angles an oscillation select can offer, narrowest first: the preset angles of the machine, or the sweeps of one that takes two angles. Empty when it can have no oscillation select, as a machine that tilts. */
   oscillationAngles: OscillationAngleChoice[];
+  /** The angles the select of a machine that tilts offers, with its breeze, or none for a machine that does not tilt. */
+  tiltAngles: TiltAngle[];
+  /** Whether the machine turns to follow the people it finds. */
+  hasFindAndFollow: boolean;
   /** Whether apps can turn the air the machine blows to the front or the back. */
   hasAirflowDirection: boolean;
   /** Whether the machine heats, with a setpoint. */
@@ -45,6 +49,10 @@ export interface AvailableControls {
   hasHumidification: boolean;
   /** Whether the machine picks the target humidity itself in an auto mode. */
   hasAutoHumidification: boolean;
+  /** Whether the machine runs a clean cycle, which it asks for as often as the hardness of its water says. */
+  hasWaterHardness: boolean;
+  /** Whether the machine reports the life left in its filters. */
+  hasFilterLife: boolean;
   /** Whether the machine can keep measuring the air while it is off. */
   hasContinuousMonitoring: boolean;
   /** Whether the machine measures the air, and so reports pollutants. */
@@ -71,16 +79,20 @@ export function getOscillationAngles(capabilities: EnvironmentalCareCapabilities
  * @returns {AvailableControls} What the device can have.
  */
 export function getAvailableControls(capabilities: EnvironmentalCareCapabilities): AvailableControls {
-  // A tilt is written through fields of the machine's own, which the plugin does not send.
-  const hasOscillation = capabilities.oscillation !== 'none' && capabilities.oscillation !== 'tilt';
+  const isTilt = capabilities.oscillation === 'tilt';
+  const hasOscillation = isTilt ? capabilities.tiltAnglesInDegrees.includes('breeze') : capabilities.oscillation !== 'none';
   return {
     hasAutoMode: capabilities.autoMode,
     hasOscillation,
-    oscillationAngles: hasOscillation ? getOscillationAngles(capabilities) : [],
+    oscillationAngles: hasOscillation && !isTilt ? getOscillationAngles(capabilities) : [],
+    tiltAngles: [...capabilities.tiltAnglesInDegrees],
+    hasFindAndFollow: capabilities.findAndFollowModes.includes('on'),
     hasAirflowDirection: capabilities.fanAirDirections.length > 1,
     hasHeat: capabilities.heatModes.includes('heat'),
     hasHumidification: capabilities.humidificationModes.includes('humidify'),
     hasAutoHumidification: capabilities.humidificationModes.includes('humidify') && capabilities.autoHumidification,
+    hasWaterHardness: capabilities.waterHardnesses.length > 0,
+    hasFilterLife: capabilities.filters.length > 0,
     hasContinuousMonitoring: capabilities.continuousMonitoring,
     hasAirQualitySensor: capabilities.hasAirQualitySensor,
   };
@@ -97,7 +109,7 @@ export function fitToCapabilities(device: DysonDeviceConfig, capabilities: Envir
   const controls = getAvailableControls(capabilities);
   let { oscillationControl } = device;
   if (!controls.hasOscillation) oscillationControl = 'hidden';
-  else if (oscillationControl === 'select' && controls.oscillationAngles.length === 0) oscillationControl = 'switch';
+  else if (oscillationControl === 'select' && controls.oscillationAngles.length === 0 && controls.tiltAngles.length === 0) oscillationControl = 'switch';
   return {
     ...device,
     fanAutoControl: controls.hasAutoMode ? device.fanAutoControl : 'native',
@@ -105,6 +117,8 @@ export function fitToCapabilities(device: DysonDeviceConfig, capabilities: Envir
     airflowDirectionControl: controls.hasAirflowDirection ? device.airflowDirectionControl : 'hidden',
     heatControl: controls.hasHeat ? device.heatControl : 'hidden',
     humidificationControl: controls.hasHumidification ? device.humidificationControl : 'hidden',
+    findAndFollowControl: controls.hasFindAndFollow ? device.findAndFollowControl : 'hidden',
+    hasWaterHardnessSelect: controls.hasWaterHardness && device.hasWaterHardnessSelect,
     hasContinuousMonitoringSwitch: controls.hasContinuousMonitoring && device.hasContinuousMonitoringSwitch,
     hasAirQualitySensor: controls.hasAirQualitySensor && device.hasAirQualitySensor,
   };

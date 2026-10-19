@@ -23,6 +23,7 @@ describe('machineSync', () => {
     const machine = { ...purifierCool, name: 'Lounge', firmwareVersion: '0700.1', firmwareCapabilities: ['AdvanceOscillationDay0'], variant: 'M' };
     expect(getMachineUpdate(livingRoom, [machine], log)).toEqual({
       ...livingRoom,
+      roomName: 'Lounge',
       firmwareVersion: '0700.1',
       firmwareCapabilities: ['AdvanceOscillationDay0'],
       variant: 'M',
@@ -36,9 +37,9 @@ describe('machineSync', () => {
     expect(updated?.firmwareCapabilities).toBeUndefined();
   });
 
-  it('should change nothing for a machine whose room name alone changed in the Dyson app', () => {
-    expect(getMachineUpdate(livingRoom, [{ ...purifierCool, name: 'Bedroom' }], log)).toBeUndefined();
-    expect(getMachineUpdate(livingRoom, [{ ...purifierCool, name: undefined }], log)).toBeUndefined();
+  it('should take the new room name of a machine, and keep the name of the device', () => {
+    expect(getMachineUpdate(livingRoom, [{ ...purifierCool, name: 'Bedroom' }], log)).toEqual({ ...livingRoom, roomName: 'Bedroom' });
+    expect(getMachineUpdate(livingRoom, [{ ...purifierCool, name: undefined }], log)).toEqual({ ...livingRoom, roomName: undefined });
   });
 
   it('should warn of a machine of another type, or on another broker, and change nothing', () => {

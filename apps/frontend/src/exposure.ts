@@ -19,6 +19,8 @@ export function pickExposure(source: Exposure): Exposure {
     airflowDirectionControl,
     heatControl,
     humidificationControl,
+    findAndFollowControl,
+    hasWaterHardnessSelect,
     hasContinuousMonitoringSwitch,
     hasAirQualitySensor,
     hasTemperatureSensor,
@@ -34,6 +36,8 @@ export function pickExposure(source: Exposure): Exposure {
     airflowDirectionControl,
     heatControl,
     humidificationControl,
+    findAndFollowControl,
+    hasWaterHardnessSelect,
     hasContinuousMonitoringSwitch,
     hasAirQualitySensor,
     hasTemperatureSensor,
@@ -50,10 +54,12 @@ export function fitExposure(exposure: Exposure, controls: AvailableControls): Ex
   const fitted = pickExposure(exposure);
   if (!controls.hasAutoMode) fitted.fanAutoControl = 'native';
   if (!controls.hasOscillation) fitted.oscillationControl = 'hidden';
-  else if (fitted.oscillationControl === 'select' && controls.oscillationAngles.length === 0) fitted.oscillationControl = 'switch';
+  else if (fitted.oscillationControl === 'select' && controls.oscillationAngles.length === 0 && controls.tiltAngles.length === 0) fitted.oscillationControl = 'switch';
   if (!controls.hasAirflowDirection) fitted.airflowDirectionControl = 'hidden';
   if (!controls.hasHeat) fitted.heatControl = 'hidden';
   if (!controls.hasHumidification) fitted.humidificationControl = 'hidden';
+  if (!controls.hasFindAndFollow) fitted.findAndFollowControl = 'hidden';
+  fitted.hasWaterHardnessSelect &&= controls.hasWaterHardness;
   fitted.hasContinuousMonitoringSwitch &&= controls.hasContinuousMonitoring;
   fitted.hasAirQualitySensor &&= controls.hasAirQualitySensor;
   return fitted;
@@ -71,6 +77,8 @@ const defaultExposure: Exposure = {
   airflowDirectionControl: 'native',
   heatControl: 'thermostat',
   humidificationControl: 'select',
+  findAndFollowControl: 'hidden',
+  hasWaterHardnessSelect: false,
   hasContinuousMonitoringSwitch: false,
   hasAirQualitySensor: true,
   hasTemperatureSensor: true,
@@ -105,8 +113,9 @@ export function draftsFromMachines(machines: readonly Machine[]): Draft[] {
 }
 
 export function draftFromStored(device: StoredDevice): Draft {
-  const { capabilities, controls, reportedSensors, name, serialNumber, type, variant, mqttRootTopicLevel, model, productName, firmwareVersion, firmwareCapabilities } = device;
-  const machine: Machine = { serialNumber, type, category: 'environmentalCare', name, variant, mqttRootTopicLevel, model, productName, firmwareVersion, firmwareCapabilities };
+  const { capabilities, controls, reportedSensors, name, roomName, serialNumber, type, variant, mqttRootTopicLevel, model, productName, firmwareVersion, firmwareCapabilities } = device;
+  // The machine is named as the Dyson app names it, and the draft as Matter does.
+  const machine: Machine = { serialNumber, type, category: 'environmentalCare', name: roomName, variant, mqttRootTopicLevel, model, productName, firmwareVersion, firmwareCapabilities };
   return { machine, name, isNew: false, capabilities, controls, reportedSensors, ...pickExposure(device) };
 }
 
@@ -128,10 +137,14 @@ export const noControls: AvailableControls = {
   hasAutoMode: false,
   hasOscillation: false,
   oscillationAngles: [],
+  tiltAngles: [],
+  hasFindAndFollow: false,
   hasAirflowDirection: false,
   hasHeat: false,
   hasHumidification: false,
   hasAutoHumidification: false,
+  hasWaterHardness: false,
+  hasFilterLife: false,
   hasContinuousMonitoring: false,
   hasAirQualitySensor: false,
 };

@@ -7,7 +7,7 @@
 /* oxlint-disable unicorn/no-useless-undefined */
 
 import { type MachineSnapshot, PendingCommand } from '../../src/accessory/pendingCommand.js';
-import { capabilitiesOf, createFakeClient, hotCool, humidifyCool, purifierCool } from '../fakeDyson.js';
+import { bigQuiet, capabilitiesOf, createFakeClient, hotCool, humidifyCool, purifierCool } from '../fakeDyson.js';
 
 /**
  * Describe a machine as it was last read
@@ -16,7 +16,15 @@ import { capabilitiesOf, createFakeClient, hotCool, humidifyCool, purifierCool }
  * @returns {MachineSnapshot} The machine: a purifier that is on at speed 4, with a sweep select.
  */
 function snapshot(overrides: Partial<MachineSnapshot> = {}): MachineSnapshot {
-  return { state: createFakeClient(purifierCool).state, capabilities: capabilitiesOf(purifierCool), lastManualFanSpeed: 6, isSweepSelect: true, ...overrides };
+  return {
+    state: createFakeClient(purifierCool).state,
+    capabilities: capabilitiesOf(purifierCool),
+    lastManualFanSpeed: 6,
+    isSweepSelect: true,
+    isTilt: false,
+    lastTiltAngle: undefined,
+    ...overrides,
+  };
 }
 
 describe('PendingCommand', () => {
@@ -63,6 +71,42 @@ describe('PendingCommand', () => {
     expect(pending.take(snapshot({ state: undefined }), () => undefined)).toEqual({ oscillationMode: 'on', oscillationAngles: { lowerInDegrees: 135, upperInDegrees: 225 } });
     pending.requestOscillation('breeze');
     expect(pending.take(snapshot({ isSweepSelect: false }), () => undefined)).toEqual({ oscillationMode: 'on', oscillationPresetAngleInDegrees: 'breeze' });
+  });
+
+  it('should oscillate with the idle modes while the machine stands by, and let the last request win', () => {
+    const pending = new PendingCommand();
+    const idle = { ...createFakeClient(purifierCool).state, oscillationState: 'idle' as const };
+    pending.requestOscillationOn(true);
+    expect(pending.take(snapshot({ state: idle }), () => undefined)).toEqual({ oscillationMode: 'idleOn' });
+    pending.requestOscillationOn(false);
+    expect(pending.take(snapshot(), () => undefined)).toEqual({ oscillationMode: 'off' });
+    pending.requestOscillation('off');
+    expect(pending.take(snapshot({ state: idle }), () => undefined)).toEqual({ oscillationMode: 'idleOff' });
+    pending.requestOscillation(90);
+    pending.requestOscillationOn(false);
+    expect(pending.take(snapshot(), () => undefined)).toEqual({ oscillationMode: 'off' });
+    pending.requestOscillationOn(true);
+    pending.requestOscillation(90);
+    expect(pending.take(snapshot({ isSweepSelect: false }), () => undefined)).toEqual({ oscillationMode: 'on', oscillationPresetAngleInDegrees: 90 });
+  });
+
+  it('should breeze a machine that tilts, go back to its last angle, and keep a machine that is off off', () => {
+    const pending = new PendingCommand();
+    const tilt = { ...createFakeClient(bigQuiet).state, oscillationMode: null, tiltAngleInDegrees: 25 as const };
+    const machine = snapshot({ state: tilt, capabilities: capabilitiesOf(bigQuiet), isSweepSelect: false, isTilt: true, lastTiltAngle: 25 });
+    pending.requestOscillationOn(true);
+    expect(pending.take(machine, () => undefined)).toEqual({ tiltAngleInDegrees: 'breeze' });
+    pending.requestOscillationOn(false);
+    expect(pending.take(machine, () => undefined)).toEqual({ tiltAngleInDegrees: 25 });
+    pending.requestOscillationOn(false);
+    expect(pending.take({ ...machine, lastTiltAngle: undefined }, () => undefined)).toEqual({ tiltAngleInDegrees: 0 });
+    pending.requestTilt(50);
+    expect(pending.take({ ...machine, state: { ...tilt, fanPower: false } }, () => undefined)).toEqual({ tiltAngleInDegrees: 50, fanPower: false });
+    // A power asked for with it wins.
+    pending.requestOscillationOn(true);
+    pending.requestTilt(0);
+    pending.requestControl({ fanPower: true });
+    expect(pending.take({ ...machine, state: { ...tilt, fanPower: false } }, () => undefined)).toEqual({ tiltAngleInDegrees: 0, fanPower: true });
   });
 
   it('should humidify to a target, and to the auto mode only on a machine that has one', () => {

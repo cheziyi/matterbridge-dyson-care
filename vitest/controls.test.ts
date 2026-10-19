@@ -5,7 +5,7 @@
  */
 
 import { addReportedSensors, fitToCapabilities, getAvailableControls, hasSameControls, noReportedSensors } from '../src/controls.js';
-import { capabilitiesOf, coolFan, createDeviceConfig, createEmptySensors, createSensors, hotCool, humidifyCool, purifierCool } from './fakeDyson.js';
+import { bigQuiet, capabilitiesOf, coolFan, createDeviceConfig, createEmptySensors, createSensors, hotCool, humidifyCool, purifierCool, purifierFollow } from './fakeDyson.js';
 
 describe('controls', () => {
   it('should offer the sweeps to a machine that takes any two angles', () => {
@@ -13,10 +13,14 @@ describe('controls', () => {
       hasAutoMode: true,
       hasOscillation: true,
       oscillationAngles: [45, 90, 180, 350],
+      tiltAngles: [],
+      hasFindAndFollow: false,
       hasAirflowDirection: true,
       hasHeat: false,
       hasHumidification: false,
       hasAutoHumidification: false,
+      hasWaterHardness: false,
+      hasFilterLife: true,
       hasContinuousMonitoring: true,
       hasAirQualitySensor: true,
     });
@@ -24,11 +28,21 @@ describe('controls', () => {
 
   it('should offer the preset angles, the heating and the humidifying of the machines that have them', () => {
     expect(getAvailableControls(capabilitiesOf(hotCool))).toMatchObject({ hasHeat: true, oscillationAngles: [45, 90, 180, 350] });
-    expect(getAvailableControls(capabilitiesOf(humidifyCool))).toMatchObject({ hasHumidification: true, hasAutoHumidification: true, oscillationAngles: [45, 90, 'breeze'] });
+    expect(getAvailableControls(capabilitiesOf(humidifyCool))).toMatchObject({
+      hasHumidification: true,
+      hasAutoHumidification: true,
+      hasWaterHardness: true,
+      oscillationAngles: [45, 90, 'breeze'],
+    });
+  });
+
+  it('should offer the tilt of a machine that tilts as its oscillation, and find and follow to one that has it', () => {
+    expect(getAvailableControls(capabilitiesOf(bigQuiet))).toMatchObject({ hasOscillation: true, oscillationAngles: [], tiltAngles: [0, 25, 50, 'breeze'] });
+    expect(getAvailableControls(capabilitiesOf(purifierFollow))).toMatchObject({ hasFindAndFollow: true });
   });
 
   it('should offer a fan without an auto mode or an air quality sensor none of them', () => {
-    expect(getAvailableControls(capabilitiesOf(coolFan))).toMatchObject({ hasAutoMode: false, hasAirQualitySensor: false, hasContinuousMonitoring: false });
+    expect(getAvailableControls(capabilitiesOf(coolFan))).toMatchObject({ hasAutoMode: false, hasAirQualitySensor: false, hasContinuousMonitoring: false, hasFilterLife: false });
   });
 
   it('should offer no sweep to a machine that takes its two angles one way alone', () => {
@@ -37,8 +51,13 @@ describe('controls', () => {
     expect(getAvailableControls(capabilitiesOf(narrow))).toMatchObject({ hasOscillation: true, oscillationAngles: [] });
   });
 
-  it('should offer no oscillation to a machine that does not oscillate or tilts', () => {
-    expect(getAvailableControls({ ...capabilitiesOf(purifierCool), oscillation: 'tilt' })).toMatchObject({ hasOscillation: false, oscillationAngles: [] });
+  it('should offer no oscillation to a machine that does not oscillate, or tilts without a breeze', () => {
+    expect(getAvailableControls({ ...capabilitiesOf(purifierCool), oscillation: 'none' })).toMatchObject({ hasOscillation: false, oscillationAngles: [] });
+    expect(getAvailableControls({ ...capabilitiesOf(bigQuiet), tiltAnglesInDegrees: [0, 25] })).toMatchObject({
+      hasOscillation: false,
+      oscillationAngles: [],
+      tiltAngles: [0, 25],
+    });
     expect(getAvailableControls({ ...capabilitiesOf(purifierCool), oscillation: 'basic', oscillationAngles: null, oscillationAngleWidthsInDegrees: [] })).toMatchObject({
       hasOscillation: true,
       oscillationAngles: [],
@@ -46,20 +65,35 @@ describe('controls', () => {
   });
 
   it('should drop the settings a machine has no use for', () => {
-    const device = createDeviceConfig(coolFan, { fanAutoControl: 'switch', airflowDirectionControl: 'switch', hasContinuousMonitoringSwitch: true });
+    const device = createDeviceConfig(coolFan, {
+      fanAutoControl: 'switch',
+      airflowDirectionControl: 'switch',
+      findAndFollowControl: 'switch',
+      hasWaterHardnessSelect: true,
+      hasContinuousMonitoringSwitch: true,
+    });
     expect(fitToCapabilities(device, capabilitiesOf(coolFan))).toEqual({
       ...device,
       fanAutoControl: 'native',
       airflowDirectionControl: 'hidden',
       heatControl: 'hidden',
       humidificationControl: 'hidden',
+      findAndFollowControl: 'hidden',
+      hasWaterHardnessSelect: false,
       hasContinuousMonitoringSwitch: false,
       hasAirQualitySensor: false,
     });
   });
 
-  it('should keep the humidifying of a humidifier', () => {
-    expect(fitToCapabilities(createDeviceConfig(humidifyCool, { humidificationControl: 'switches' }), capabilitiesOf(humidifyCool)).humidificationControl).toBe('switches');
+  it('should keep the humidifying of a humidifier, and the controls of the machines that have them', () => {
+    const humidifier = createDeviceConfig(humidifyCool, { humidificationControl: 'switches', hasWaterHardnessSelect: true });
+    expect(fitToCapabilities(humidifier, capabilitiesOf(humidifyCool))).toMatchObject({
+      humidificationControl: 'switches',
+      hasWaterHardnessSelect: true,
+    });
+    expect(fitToCapabilities(createDeviceConfig(purifierFollow, { findAndFollowControl: 'select' }), capabilitiesOf(purifierFollow)).findAndFollowControl).toBe('select');
+    // A tilt select picks the angle, so it stays a select.
+    expect(fitToCapabilities(createDeviceConfig(bigQuiet, { oscillationControl: 'select' }), capabilitiesOf(bigQuiet)).oscillationControl).toBe('select');
   });
 
   it('should turn an oscillation select without angles into a switch, and hide one the machine lacks', () => {

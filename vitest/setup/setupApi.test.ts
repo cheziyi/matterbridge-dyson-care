@@ -7,8 +7,8 @@
 /* oxlint-disable unicorn/no-useless-undefined */
 
 import type { ProbeResult } from '../../src/setup/probe.js';
-import { handleSetupRequest, parseDysonMachine, type SetupPlatform } from '../../src/setup/setupApi.js';
-import { createDeviceConfig, purifierCool } from '../fakeDyson.js';
+import { getMachineReport, handleSetupRequest, parseDysonMachine, type SetupPlatform } from '../../src/setup/setupApi.js';
+import { coolLink, createDeviceConfig, createFakeClient, humidifyCool, purifierCool } from '../fakeDyson.js';
 
 const state = { devices: [] };
 const ready: ProbeResult = { status: 'ready', machine: purifierCool };
@@ -21,6 +21,7 @@ const platform = {
   signIn: vi.fn(async () => {}),
   signOut: vi.fn(async () => {}),
   listMachines: vi.fn(async () => [{ ...purifierCool, isConfigured: false, hasDuplicateName: false, support: 'supported' as const }]),
+  syncMachines: vi.fn(async () => {}),
   probe: vi.fn(async () => ready),
   saveDevice: vi.fn(async () => {}),
   removeDevice: vi.fn(async () => true),
@@ -29,6 +30,28 @@ const platform = {
 describe('setupApi', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  it('should report the filters, the clean cycle and the faults a machine tells', () => {
+    expect(getMachineReport(undefined, undefined)).toBeUndefined();
+    expect(getMachineReport(undefined, ['filterReplacement'])).toEqual({ filters: [], faults: ['filterReplacement'] });
+    expect(getMachineReport(createFakeClient(purifierCool).state, undefined)).toEqual({ filters: [] });
+    const humidifier = { ...createFakeClient(humidifyCool).state, outerFilterLifeInPercent: 84.6, innerFilterLifeInPercent: 60, cleanCycleState: 'notInCleanCycle' as const };
+    expect(getMachineReport(humidifier, [])).toEqual({
+      filters: [
+        { filter: 'outerFilter', lifeInPercent: 85 },
+        { filter: 'innerFilter', lifeInPercent: 60 },
+      ],
+      cleanCycle: { state: 'notInCleanCycle', remainingTimeToNextInHours: null, remainingTimeOfActiveInMinutes: null },
+      faults: [],
+    });
+    // A machine that reports the hours to its next clean cycle alone has one too.
+    expect(getMachineReport({ ...humidifier, cleanCycleState: null, remainingTimeToNextCleanCycleInHours: 120 }, undefined)?.cleanCycle).toEqual({
+      state: null,
+      remainingTimeToNextInHours: 120,
+      remainingTimeOfActiveInMinutes: null,
+    });
+    expect(getMachineReport({ ...createFakeClient(coolLink).state, filterLifeInHours: 2150 }, undefined)).toEqual({ filters: [{ filter: 'filter', lifeInPercent: 50 }] });
   });
 
   it('should read the machine a request is about', () => {
@@ -97,6 +120,11 @@ describe('setupApi', () => {
       ok: true,
       machines: [{ ...purifierCool, isConfigured: false, hasDuplicateName: false, support: 'supported' }],
     });
+  });
+
+  it('should read the machine list again, and answer with the state it leaves', async () => {
+    expect(await handleSetupRequest(platform, 'POST', 'sync')).toEqual({ ok: true, state });
+    expect(platform.syncMachines).toHaveBeenCalledTimes(1);
   });
 
   it('should check a machine', async () => {

@@ -22,6 +22,8 @@ import {
   OnOff,
   RelativeHumidityMeasurement,
   TemperatureMeasurement,
+  HepaFilterMonitoring,
+  ResourceMonitoring,
   Thermostat,
 } from 'matterbridge/matter/clusters';
 import { log, setupTest } from 'matterbridge/vitest-utils';
@@ -30,7 +32,22 @@ import { addDevice, aggregator, createServerNode, createTestEnvironment, startSe
 import { DysonAccessory } from '../../src/accessory/dysonAccessory.js';
 import { readFanRequest } from '../../src/accessory/matterState.js';
 import { noReportedSensors, type ReportedSensors } from '../../src/controls.js';
-import { coolFan, createDeviceConfig, createEmptySensors, createFakeClient, createSensors, factoryOf, type FakeClient, hotCool, humidifyCool, purifierCool } from '../fakeDyson.js';
+import {
+  bigQuiet,
+  coolFan,
+  coolLink,
+  createDeviceConfig,
+  createEmptySensors,
+  createFakeClient,
+  createFaults,
+  createSensors,
+  factoryOf,
+  type FakeClient,
+  hotCool,
+  humidifyCool,
+  purifierCool,
+  purifierFollow,
+} from '../fakeDyson.js';
 
 const online = { fabric: 1 } as unknown as ActionContext;
 const vendorId = 0xfff1;
@@ -186,19 +203,19 @@ describe('DysonAccessory', () => {
       expect(accessory.endpoint.getAttribute(FanControl, 'speedCurrent')).toBe(7);
     });
 
-    it('should set the slowest, the middle and the fastest speed for the fan modes Low, Medium and High', async () => {
+    it('should set the nearest speed for the fan modes Low, Medium and High', async () => {
+      // A fan mode sets the middle percent of its third, 17, 50 or 84 %, which goes to the nearest speed as any percent does.
       await writeAsController(accessory.endpoint, 'FanControl', 'fanMode', FanControl.FanMode.Low);
       await accessory.flushCommands();
-      expect(client.setState).toHaveBeenLastCalledWith({ fanSpeed: 1 });
-      expect(accessory.endpoint.getAttribute(FanControl, 'percentSetting')).toBe(10);
+      expect(client.setState).toHaveBeenLastCalledWith({ fanSpeed: 2 });
+      expect(accessory.endpoint.getAttribute(FanControl, 'percentSetting')).toBe(20);
       await writeAsController(accessory.endpoint, 'FanControl', 'fanMode', FanControl.FanMode.Medium);
       await accessory.flushCommands();
       expect(client.setState).toHaveBeenLastCalledWith({ fanSpeed: 5 });
       await writeAsController(accessory.endpoint, 'FanControl', 'fanMode', FanControl.FanMode.High);
       await accessory.flushCommands();
-      expect(client.setState).toHaveBeenLastCalledWith({ fanSpeed: 10 });
+      expect(client.setState).toHaveBeenLastCalledWith({ fanSpeed: 8 });
       expect(accessory.endpoint.getAttribute(FanControl, 'fanMode')).toBe(FanControl.FanMode.High);
-      // A percent stays the nearest speed, though it moves the fan mode too.
       await writeAsController(accessory.endpoint, 'FanControl', 'percentSetting', 31);
       await accessory.flushCommands();
       expect(client.setState).toHaveBeenLastCalledWith({ fanSpeed: 3 });
@@ -441,6 +458,16 @@ describe('DysonAccessory', () => {
       await writeAsController(accessory.endpoint, 'FanControl', 'percentSetting', 100);
       await accessory.flushCommands();
       expect(client.setState).toHaveBeenCalledWith({ autoMode: true });
+      // With auto above them, the percents of the fan modes go to the nearest of 11 steps.
+      await writeAsController(accessory.endpoint, 'FanControl', 'fanMode', FanControl.FanMode.Low);
+      await accessory.flushCommands();
+      expect(client.setState).toHaveBeenLastCalledWith({ fanSpeed: 2 });
+      await writeAsController(accessory.endpoint, 'FanControl', 'fanMode', FanControl.FanMode.Medium);
+      await accessory.flushCommands();
+      expect(client.setState).toHaveBeenLastCalledWith({ fanSpeed: 6 });
+      await writeAsController(accessory.endpoint, 'FanControl', 'fanMode', FanControl.FanMode.High);
+      await accessory.flushCommands();
+      expect(client.setState).toHaveBeenLastCalledWith({ fanSpeed: 9 });
       await accessory.dispose();
     });
   });
@@ -493,6 +520,17 @@ describe('DysonAccessory', () => {
       await writeAsController(accessory.continuousMonitoringSwitch, 'OnOff', 'onOff', true);
       await accessory.flushCommands();
       expect(client.setState).toHaveBeenCalledWith({ nightMode: false, fanAirDirection: 'forward', continuousMonitoring: true });
+      // With auto below them, the step a fan mode goes to is one more than its speed. High comes first, as a fan mode whose
+      // third the percent is already in, here that of Low, sets nothing.
+      await writeAsController(accessory.endpoint, 'FanControl', 'fanMode', FanControl.FanMode.High);
+      await accessory.flushCommands();
+      expect(client.setState).toHaveBeenLastCalledWith({ fanSpeed: 8 });
+      await writeAsController(accessory.endpoint, 'FanControl', 'fanMode', FanControl.FanMode.Low);
+      await accessory.flushCommands();
+      expect(client.setState).toHaveBeenLastCalledWith({ fanSpeed: 1 });
+      await writeAsController(accessory.endpoint, 'FanControl', 'fanMode', FanControl.FanMode.Medium);
+      await accessory.flushCommands();
+      expect(client.setState).toHaveBeenLastCalledWith({ fanSpeed: 5 });
     });
 
     it('should keep a state the machine sends while a command waits, for the command to read back', async () => {
@@ -546,6 +584,7 @@ describe('DysonAccessory', () => {
       expect(client.connect).toHaveBeenCalledTimes(1);
       previous.onState({ ...client.state, fanPower: false });
       previous.onSensors(createEmptySensors());
+      previous.onFaults(createFaults({ productErrors: ['wdog'] }));
       previous.onReconnect();
       previous.onDisconnect();
       await accessory.flushCommands();
@@ -597,6 +636,7 @@ describe('DysonAccessory', () => {
       await accessory.dispose();
       client.handlers.onState({ ...client.state, fanPower: false });
       client.handlers.onSensors(createEmptySensors());
+      client.handlers.onFaults(createFaults({ productErrors: ['wdog'] }));
       client.handlers.onDisconnect();
       await writeAsController(accessory.endpoint, 'OnOff', 'onOff', false);
       await accessory.flushCommands();
@@ -719,6 +759,240 @@ describe('DysonAccessory', () => {
       await writeAsController(accessory.oscillationSwitch, 'OnOff', 'onOff', false);
       await accessory.flushCommands();
       expect(client.setState).toHaveBeenCalledWith({ oscillationMode: 'off' });
+      await accessory.dispose();
+    });
+  });
+
+  describe('a Big+Quiet that tilts', () => {
+    // It measures no air here, so that each accessory has its main endpoint and its controls alone.
+    const bare = { hasAirQualitySensor: false, hasTemperatureSensor: false, hasHumiditySensor: false } as const;
+    const tilted = { oscillationMode: null, tiltAngleInDegrees: 25, fanAirDirection: null } as const;
+
+    it('should breeze with the up and down rocking, and tilt back to the angle it was at', async () => {
+      const machine = { ...bigQuiet, serialNumber: 'NK6-EU-MHA0051A' };
+      const client = createFakeClient(machine, tilted);
+      const accessory = new DysonAccessory({ config: createDeviceConfig(machine, bare), createClient: factoryOf(client), log, vendorId, commandDelayInMs: 500 });
+      await addAccessory(accessory);
+      expect(accessory.endpoint.getAttribute(FanControl, 'rockSupport')).toEqual({ rockLeftRight: false, rockUpDown: true, rockRound: false });
+      await accessory.start();
+      expect(accessory.endpoint.getAttribute(FanControl, 'rockSetting')).toEqual({ rockLeftRight: false, rockUpDown: false, rockRound: false });
+      await writeAsController(accessory.endpoint, 'FanControl', 'rockSetting', { rockLeftRight: false, rockUpDown: true, rockRound: false });
+      await accessory.flushCommands();
+      expect(client.setState).toHaveBeenLastCalledWith({ tiltAngleInDegrees: 'breeze' });
+      expect(accessory.endpoint.getAttribute(FanControl, 'rockSetting')).toEqual({ rockLeftRight: false, rockUpDown: true, rockRound: false });
+      await writeAsController(accessory.endpoint, 'FanControl', 'rockSetting', { rockLeftRight: false, rockUpDown: false, rockRound: false });
+      await accessory.flushCommands();
+      expect(client.setState).toHaveBeenLastCalledWith({ tiltAngleInDegrees: 25 });
+      await accessory.dispose();
+    });
+
+    it('should breeze with a switch, and tilt to the angle its select picks, leaving a machine that is off off', async () => {
+      const switched = { ...bigQuiet, serialNumber: 'NK6-EU-MHA0052A' };
+      const switchClient = createFakeClient(switched, tilted);
+      const withSwitch = new DysonAccessory({
+        config: createDeviceConfig(switched, { ...bare, oscillationControl: 'switch' }),
+        createClient: factoryOf(switchClient),
+        log,
+        vendorId,
+        commandDelayInMs: 500,
+      });
+      await addAccessory(withSwitch);
+      await withSwitch.start();
+      expect(withSwitch.oscillationSwitch?.getAttribute(OnOff, 'onOff')).toBe(false);
+      await writeAsController(withSwitch.oscillationSwitch, 'OnOff', 'onOff', true);
+      await withSwitch.flushCommands();
+      expect(switchClient.setState).toHaveBeenLastCalledWith({ tiltAngleInDegrees: 'breeze' });
+      expect(withSwitch.oscillationSwitch?.getAttribute(OnOff, 'onOff')).toBe(true);
+      await withSwitch.dispose();
+
+      const selected = { ...bigQuiet, serialNumber: 'NK6-EU-MHA0053A' };
+      const selectClient = createFakeClient(selected, { ...tilted, fanPower: false });
+      const withSelect = new DysonAccessory({
+        config: createDeviceConfig(selected, { ...bare, oscillationControl: 'select' }),
+        createClient: factoryOf(selectClient),
+        log,
+        vendorId,
+        commandDelayInMs: 500,
+      });
+      expect(withSelect.oscillationSwitch).toBeUndefined();
+      await addAccessory(withSelect);
+      await withSelect.start();
+      expect(withSelect.tiltSelect?.getAttribute(ModeSelect, 'supportedModes')).toHaveLength(4);
+      expect(withSelect.tiltSelect?.getAttribute(ModeSelect, 'currentMode')).toBe(1);
+      await writeAsController(withSelect.tiltSelect, 'ModeSelect', 'currentMode', 3);
+      await withSelect.flushCommands();
+      expect(selectClient.setState).toHaveBeenLastCalledWith({ tiltAngleInDegrees: 'breeze', fanPower: false });
+      expect(withSelect.tiltSelect?.getAttribute(ModeSelect, 'currentMode')).toBe(3);
+      await withSelect.dispose();
+    });
+  });
+
+  describe('a purifier that follows people, with its filters', () => {
+    let client: FakeClient;
+    let accessory: DysonAccessory;
+    const machine = { ...purifierFollow, serialNumber: 'NK6-EU-MHA0061A' };
+    const hepa = 'HepaFilterMonitoring';
+    const carbon = 'ActivatedCarbonFilterMonitoring';
+
+    it('should show the find and follow on a switch, and the life of each filter', async () => {
+      client = createFakeClient(machine, {
+        findAndFollowMode: 'scan',
+        outerFilterLifeInPercent: 8,
+        innerFilterLifeInPercent: 60,
+        outerFilterType: 'hepa',
+        innerFilterType: 'none',
+      });
+      const config = createDeviceConfig(machine, {
+        findAndFollowControl: 'switch',
+        hasAirQualitySensor: false,
+        hasTemperatureSensor: false,
+        hasHumiditySensor: false,
+      });
+      accessory = new DysonAccessory({ config, createClient: factoryOf(client), log, vendorId, commandDelayInMs: 500 });
+      await addAccessory(accessory);
+      expect(await accessory.start()).toBe(true);
+      expect(accessory.findAndFollowSwitch?.getAttribute(OnOff, 'onOff')).toBe(true);
+      expect(accessory.endpoint.getAttribute(hepa, 'condition')).toBe(8);
+      expect(accessory.endpoint.getAttribute(hepa, 'changeIndication')).toBe(ResourceMonitoring.ChangeIndication.Warning);
+      expect(accessory.endpoint.getAttribute(hepa, 'inPlaceIndicator')).toBe(true);
+      expect(accessory.endpoint.getAttribute(carbon, 'condition')).toBe(60);
+      expect(accessory.endpoint.getAttribute(carbon, 'changeIndication')).toBe(ResourceMonitoring.ChangeIndication.Ok);
+      // The machine has no carbon filter fitted.
+      expect(accessory.endpoint.getAttribute(carbon, 'inPlaceIndicator')).toBe(false);
+    });
+
+    it('should send the find and follow its switch sets', async () => {
+      await writeAsController(accessory.findAndFollowSwitch, 'OnOff', 'onOff', false);
+      await accessory.flushCommands();
+      expect(client.setState).toHaveBeenLastCalledWith({ findAndFollowMode: 'off' });
+      await writeAsController(accessory.findAndFollowSwitch, 'OnOff', 'onOff', true);
+      await accessory.flushCommands();
+      expect(client.setState).toHaveBeenLastCalledWith({ findAndFollowMode: 'on' });
+    });
+
+    it('should reset the life of a filter a controller resets, and fail a reset the machine does not take', async () => {
+      await accessory.endpoint.invokeBehaviorCommand(HepaFilterMonitoring, 'resetCondition');
+      expect(client.resetFilterLife).toHaveBeenLastCalledWith('outerFilter');
+      expect(accessory.endpoint.getAttribute(hepa, 'condition')).toBe(100);
+      await accessory.endpoint.invokeBehaviorCommand(carbon, 'resetCondition');
+      expect(client.resetFilterLife).toHaveBeenLastCalledWith('innerFilter');
+      client.resetFilterLife.mockRejectedValueOnce(new DysonError('The broker refused the command', 503));
+      await expect(accessory.endpoint.invokeBehaviorCommand(HepaFilterMonitoring, 'resetCondition')).rejects.toThrow();
+      expect(accessory.getStatus().lastError).toBe('The broker refused the command');
+      // A client that gave up connects first.
+      client.handlers.onDisconnect();
+      await accessory.endpoint.invokeBehaviorCommand(HepaFilterMonitoring, 'resetCondition');
+      expect(client.connect).toHaveBeenCalledTimes(1);
+    });
+
+    it('should keep the faults the machine reports, and log when they change', async () => {
+      // The first read asked for them, and the machine reported none.
+      expect(accessory.getStatus().faults).toEqual([]);
+      client.handlers.onFaults(createFaults({ productWarnings: ['filterReplacement'], moduleErrors: ['wifiHeartbeat'], moduleWarnings: ['filterReplacement'] }));
+      expect(accessory.getStatus().faults).toEqual(['filterReplacement', 'wifiHeartbeat']);
+      expect(log.warn).toHaveBeenCalledWith(expect.stringContaining('reports filterReplacement, wifiHeartbeat'));
+      vi.clearAllMocks();
+      client.handlers.onFaults(createFaults({ productWarnings: ['filterReplacement'], moduleErrors: ['wifiHeartbeat'] }));
+      expect(log.warn).not.toHaveBeenCalled();
+      client.handlers.onFaults(createFaults());
+      expect(accessory.getStatus().faults).toEqual([]);
+      expect(log.info).toHaveBeenCalledWith(expect.stringContaining('reports no fault any more'));
+      // A poll soon after asks for them no more.
+      await accessory.refresh();
+      expect(client.getFaults).not.toHaveBeenCalled();
+    });
+
+    it('should ask for the faults again after a while, and log a machine that does not tell them', async () => {
+      const now = Date.now();
+      const clock = vi.spyOn(Date, 'now').mockReturnValue(now + 16 * 60 * 1000);
+      client.getFaults.mockRejectedValueOnce(new DysonError('The machine did not answer', 504));
+      await accessory.refresh();
+      await vi.waitFor(() => expect(log.debug).toHaveBeenCalledWith(expect.stringContaining('did not tell its faults')));
+      // The answer of a client that was replaced meanwhile is dropped.
+      let answer: (faults: ReturnType<typeof createFaults>) => void = () => {
+        // Replaced by the pending read below.
+      };
+      client.getFaults.mockImplementationOnce(
+        async () =>
+          new Promise((resolve) => {
+            answer = resolve;
+          }),
+      );
+      clock.mockReturnValue(now + 32 * 60 * 1000);
+      await accessory.refresh();
+      const previous = client;
+      client = createFakeClient(machine);
+      await accessory.updateConnection(factoryOf(client));
+      answer(createFaults({ productErrors: ['wdog'] }));
+      await vi.waitFor(() => expect(previous.getFaults).toHaveBeenCalled());
+      expect(accessory.getStatus().faults).toEqual([]);
+      clock.mockRestore();
+    });
+
+    it('should fail a reset while no account is signed in', async () => {
+      await accessory.suspend();
+      await expect(accessory.endpoint.invokeBehaviorCommand(HepaFilterMonitoring, 'resetCondition')).rejects.toThrow();
+      expect(client.resetFilterLife).not.toHaveBeenCalled();
+      await accessory.dispose();
+    });
+
+    it('should pick off, follow or scan on a select, and give a fan no filters', async () => {
+      const selected = { ...purifierFollow, serialNumber: 'NK6-EU-MHA0062A' };
+      const selectClient = createFakeClient(selected, { findAndFollowMode: 'off' });
+      const config = createDeviceConfig(selected, {
+        deviceType: 'fan',
+        findAndFollowControl: 'select',
+        hasAirQualitySensor: false,
+        hasTemperatureSensor: false,
+        hasHumiditySensor: false,
+      });
+      const withSelect = new DysonAccessory({ config, createClient: factoryOf(selectClient), log, vendorId, commandDelayInMs: 500 });
+      expect(withSelect.endpoint.hasClusterServer(hepa)).toBe(false);
+      await addAccessory(withSelect);
+      await withSelect.start();
+      expect(withSelect.findAndFollowSelect?.getAttribute(ModeSelect, 'currentMode')).toBe(0);
+      await writeAsController(withSelect.findAndFollowSelect, 'ModeSelect', 'currentMode', 2);
+      await withSelect.flushCommands();
+      expect(selectClient.setState).toHaveBeenLastCalledWith({ findAndFollowMode: 'scan' });
+      expect(withSelect.findAndFollowSelect?.getAttribute(ModeSelect, 'currentMode')).toBe(2);
+      await withSelect.dispose();
+    });
+  });
+
+  describe('a machine of the first generation, and a humidifier with a water hardness select', () => {
+    it('should show the life of the one filter it counts in hours, and reset it', async () => {
+      const machine = { ...coolLink, serialNumber: 'NK6-EU-MHA0071A' };
+      const client = createFakeClient(machine, { filterLifeInHours: 2150 });
+      const config = createDeviceConfig(machine, { hasAirQualitySensor: false, hasTemperatureSensor: false, hasHumiditySensor: false });
+      const accessory = new DysonAccessory({ config, createClient: factoryOf(client), log, vendorId, commandDelayInMs: 500 });
+      expect(accessory.endpoint.hasClusterServer('ActivatedCarbonFilterMonitoring')).toBe(false);
+      await addAccessory(accessory);
+      await accessory.start();
+      expect(accessory.endpoint.getAttribute('HepaFilterMonitoring', 'condition')).toBe(50);
+      // It does not say which filter is fitted, so the filter stays fitted.
+      expect(accessory.endpoint.getAttribute('HepaFilterMonitoring', 'inPlaceIndicator')).toBe(true);
+      await accessory.endpoint.invokeBehaviorCommand(HepaFilterMonitoring, 'resetCondition');
+      expect(client.resetFilterLife).toHaveBeenLastCalledWith('filter');
+      await accessory.dispose();
+    });
+
+    it('should pick the water hardness on its select', async () => {
+      const machine = { ...humidifyCool, serialNumber: 'NK6-EU-MHA0072A' };
+      const client = createFakeClient(machine, { waterHardness: 'medium', humidificationMode: 'off', autoHumidification: false, manualHumidificationTargetInPercent: 50 });
+      const config = createDeviceConfig(machine, {
+        hasWaterHardnessSelect: true,
+        humidificationControl: 'hidden',
+        hasAirQualitySensor: false,
+        hasTemperatureSensor: false,
+        hasHumiditySensor: false,
+      });
+      const accessory = new DysonAccessory({ config, createClient: factoryOf(client), log, vendorId, commandDelayInMs: 500 });
+      await addAccessory(accessory);
+      await accessory.start();
+      expect(accessory.waterHardnessSelect?.getAttribute(ModeSelect, 'currentMode')).toBe(1);
+      await writeAsController(accessory.waterHardnessSelect, 'ModeSelect', 'currentMode', 2);
+      await accessory.flushCommands();
+      expect(client.setState).toHaveBeenLastCalledWith({ waterHardness: 'hard' });
       await accessory.dispose();
     });
   });
