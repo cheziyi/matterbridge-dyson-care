@@ -14,15 +14,15 @@ export type PresetName = 'apple' | 'google' | 'matter';
 export const presets: Record<PresetName, { title: string; text: string }> = {
   apple: {
     title: 'Apple Home',
-    text: 'Fan speed as a percentage with its auto mode, a switch for the oscillation, the night mode and the find and follow, with a sensor for the air quality, the temperature and the humidity, each a device of its own.',
+    text: 'Fan speed as a percentage with its auto mode, a switch for the oscillation, the night mode, the find and follow, the jet focus, the UV light and the ioniser, with a sensor for the air quality, the temperature and the humidity, each a device of its own.',
   },
   google: {
     title: 'Google Home',
-    text: 'Fan speed as steps, a switch for the auto mode, the oscillation, the night mode and the find and follow, with a sensor for the air quality, the temperature and the humidity, each a device of its own.',
+    text: 'Fan speed as steps, a switch for the auto mode, the oscillation, the night mode, the find and follow, the jet focus, the UV light and the ioniser, with a sensor for the air quality, the temperature and the humidity, each a device of its own.',
   },
   matter: {
     title: 'Full Matter support',
-    text: 'For apps that show every Matter control: the auto mode, the oscillation, the night mode and the airflow direction on the fan control itself, the target humidity, the find and follow and the water hardness as mode selects, and every sensor, all as one device.',
+    text: 'For apps that show every Matter control: the auto mode, the oscillation, the night mode and the airflow direction on the fan control itself, the target humidity, the find and follow and the settings of the machine as mode selects and switches, and every sensor, all as one device.',
   },
 };
 
@@ -46,13 +46,21 @@ export function presetExposure(name: PresetName, controls: AvailableControls): E
       oscillationControl: fanFeature,
       nightModeControl: fanFeature,
       // The direction of the air is set once, rather than used every day, so it gets no switch of its own.
-      airflowDirectionControl: isMatter ? 'native' : 'hidden',
+      airflowDirectionControl: 'native',
       // Every app shows a thermostat.
       heatControl: 'thermostat',
       // A mode select reaches every target humidity, but few apps show one.
       humidificationControl: isMatter ? 'select' : 'switches',
       findAndFollowControl: isMatter ? 'select' : 'switch',
-      // The water hardness is set once, rather than used every day.
+      // Settings made once, rather than used every day, get a control in the Full Matter support preset alone.
+      hasChildLockSwitch: isMatter,
+      hasUvLightSwitch: true,
+      hasIoniserSwitch: true,
+      hasJetFocusSwitch: true,
+      hasIndirectAirflowSwitch: true,
+      hasAirQualityTargetSelect: isMatter,
+      hasWickDryingSwitch: isMatter,
+      hasWickDryingSpeedSelect: isMatter,
       hasWaterHardnessSelect: isMatter,
       hasContinuousMonitoringSwitch: isMatter,
       hasAirQualitySensor: true,

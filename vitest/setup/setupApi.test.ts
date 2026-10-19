@@ -52,6 +52,9 @@ describe('setupApi', () => {
       remainingTimeOfActiveInMinutes: null,
     });
     expect(getMachineReport({ ...createFakeClient(coolLink).state, filterLifeInHours: 2150 }, undefined)).toEqual({ filters: [{ filter: 'filter', lifeInPercent: 50 }] });
+    // A humidifier that dries its wick says so, and how long it has left when it tells.
+    expect(getMachineReport({ ...humidifier, wickDryingState: 'wickDrying', wickDryingTimeRemainingInMinutes: 20 }, undefined)?.wickDrying).toEqual({ remainingTimeInMinutes: 20 });
+    expect(getMachineReport({ ...humidifier, wickDryingState: 'idle' }, undefined)?.wickDrying).toBeUndefined();
   });
 
   it('should read the machine a request is about', () => {

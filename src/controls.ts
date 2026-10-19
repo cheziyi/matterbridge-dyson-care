@@ -23,8 +23,9 @@
 
 import type { EnvironmentalCareCapabilities, EnvironmentalCareSensors, TiltAngle } from 'dyson-control';
 
-import type { DysonDeviceConfig } from './config.js';
+import { type DysonDeviceConfig, SETTING_CONTROLS, type SettingControlKey } from './config.js';
 import { getSweeps, type OscillationSelectValue } from './mapping.js';
+import { settingControls } from './settingControls.js';
 
 /** The angles an oscillation select offers besides off. */
 export type OscillationAngleChoice = Exclude<OscillationSelectValue, 'off'>;
@@ -49,8 +50,8 @@ export interface AvailableControls {
   hasHumidification: boolean;
   /** Whether the machine picks the target humidity itself in an auto mode. */
   hasAutoHumidification: boolean;
-  /** Whether the machine runs a clean cycle, which it asks for as often as the hardness of its water says. */
-  hasWaterHardness: boolean;
+  /** The setting controls the machine has, such as its child lock: see `settingControls.ts`. */
+  settingControls: SettingControlKey[];
   /** Whether the machine reports the life left in its filters. */
   hasFilterLife: boolean;
   /** Whether the machine can keep measuring the air while it is off. */
@@ -91,7 +92,7 @@ export function getAvailableControls(capabilities: EnvironmentalCareCapabilities
     hasHeat: capabilities.heatModes.includes('heat'),
     hasHumidification: capabilities.humidificationModes.includes('humidify'),
     hasAutoHumidification: capabilities.humidificationModes.includes('humidify') && capabilities.autoHumidification,
-    hasWaterHardness: capabilities.waterHardnesses.length > 0,
+    settingControls: SETTING_CONTROLS.filter((key) => settingControls[key].isAvailable(capabilities)),
     hasFilterLife: capabilities.filters.length > 0,
     hasContinuousMonitoring: capabilities.continuousMonitoring,
     hasAirQualitySensor: capabilities.hasAirQualitySensor,
@@ -103,22 +104,22 @@ export function getAvailableControls(capabilities: EnvironmentalCareCapabilities
  *
  * @param {DysonDeviceConfig} device The device.
  * @param {EnvironmentalCareCapabilities} capabilities What its machine takes.
- * @returns {DysonDeviceConfig} The device, with the controls of what the machine lacks hidden, an auto mode it lacks back to the native fan mode, and an oscillation select without angles to choose a switch.
+ * @returns {DysonDeviceConfig} The device, with the controls of what the machine lacks hidden, an auto mode it lacks back to the native fan mode, and an oscillation select without angles to choose a switch. The choice for an oscillation or an airflow direction the machine lacks is kept: its device has neither.
  */
 export function fitToCapabilities(device: DysonDeviceConfig, capabilities: EnvironmentalCareCapabilities): DysonDeviceConfig {
   const controls = getAvailableControls(capabilities);
+  const fitted: DysonDeviceConfig = { ...device };
+  for (const key of SETTING_CONTROLS) fitted[key] &&= controls.settingControls.includes(key);
   let { oscillationControl } = device;
-  if (!controls.hasOscillation) oscillationControl = 'hidden';
-  else if (oscillationControl === 'select' && controls.oscillationAngles.length === 0 && controls.tiltAngles.length === 0) oscillationControl = 'switch';
+  const hasNoAngle = controls.oscillationAngles.length === 0 && controls.tiltAngles.length === 0;
+  if (controls.hasOscillation && oscillationControl === 'select' && hasNoAngle) oscillationControl = 'switch';
   return {
-    ...device,
+    ...fitted,
     fanAutoControl: controls.hasAutoMode ? device.fanAutoControl : 'native',
     oscillationControl,
-    airflowDirectionControl: controls.hasAirflowDirection ? device.airflowDirectionControl : 'hidden',
     heatControl: controls.hasHeat ? device.heatControl : 'hidden',
     humidificationControl: controls.hasHumidification ? device.humidificationControl : 'hidden',
     findAndFollowControl: controls.hasFindAndFollow ? device.findAndFollowControl : 'hidden',
-    hasWaterHardnessSelect: controls.hasWaterHardness && device.hasWaterHardnessSelect,
     hasContinuousMonitoringSwitch: controls.hasContinuousMonitoring && device.hasContinuousMonitoringSwitch,
     hasAirQualitySensor: controls.hasAirQualitySensor && device.hasAirQualitySensor,
   };

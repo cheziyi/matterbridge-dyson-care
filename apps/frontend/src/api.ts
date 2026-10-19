@@ -8,6 +8,7 @@
 import type { DysonMachine, EnvironmentalCareCapabilities } from 'dyson-control';
 
 import type { DysonDeviceExposure } from '../../../src/config.js';
+export type { SettingControlKey } from '../../../src/config.js';
 import type { FoundMachine, SetupDevice, SetupReplies, SetupReply } from '../../../src/setup/setupApi.js';
 
 // The types are the plugin's own, so the page and the plugin cannot drift apart. They are only types: nothing of the

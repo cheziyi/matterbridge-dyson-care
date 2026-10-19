@@ -21,11 +21,12 @@
  * limitations under the License.
  */
 
-import type { EnvironmentalCareSensors, EnvironmentalCareState } from 'dyson-control';
+import type { EnvironmentalCareCapabilities, EnvironmentalCareSensors, EnvironmentalCareState } from 'dyson-control';
 import type { MatterbridgeEndpoint } from 'matterbridge';
-import { FanControl, ModeSelect, OnOff, RelativeHumidityMeasurement, TemperatureMeasurement, Thermostat } from 'matterbridge/matter/clusters';
+import { FanControl, ModeSelect, OnOff, RelativeHumidityMeasurement, TemperatureMeasurement, Thermostat, ThermostatUserInterfaceConfiguration } from 'matterbridge/matter/clusters';
 import { isValidNumber } from 'matterbridge/utils';
 
+import type { SettingControlKey } from '../config.js';
 import {
   clampHeatTarget,
   type FanPosition,
@@ -48,12 +49,13 @@ import {
   toFilterCondition,
   toMatterHumidity,
   toMatterTemperature,
-  waterHardnessSelectChoices,
 } from '../mapping.js';
+import { settingControls } from '../settingControls.js';
 import type { AccessoryLayout } from './layout.js';
 
-/** The Matter endpoints that stand for one machine. */
+/** The Matter endpoints that stand for one machine, and what the machine takes. */
 export interface AccessoryEndpoints {
+  readonly capabilities: EnvironmentalCareCapabilities;
   /** The air purifier or the fan. */
   readonly endpoint: MatterbridgeEndpoint;
   readonly fanAutoSwitch: MatterbridgeEndpoint | undefined;
@@ -62,7 +64,8 @@ export interface AccessoryEndpoints {
   readonly tiltSelect: MatterbridgeEndpoint | undefined;
   readonly findAndFollowSwitch: MatterbridgeEndpoint | undefined;
   readonly findAndFollowSelect: MatterbridgeEndpoint | undefined;
-  readonly waterHardnessSelect: MatterbridgeEndpoint | undefined;
+  /** The switch or the mode select of each setting control the device has. */
+  readonly settingEndpoints: ReadonlyMap<SettingControlKey, MatterbridgeEndpoint>;
   readonly nightModeSwitch: MatterbridgeEndpoint | undefined;
   readonly airflowDirectionSwitch: MatterbridgeEndpoint | undefined;
   readonly thermostat: MatterbridgeEndpoint | undefined;
@@ -151,7 +154,7 @@ async function applyFanFeatures(endpoint: MatterbridgeEndpoint, layout: Accessor
     const isOn = isMachineOscillating(layout, state);
     await endpoint.updateAttribute('FanControl', 'rockSetting', { rockLeftRight: isOn && !layout.isTilt, rockUpDown: isOn && layout.isTilt, rockRound: false });
   }
-  if (layout.hasSleepWind) await endpoint.updateAttribute('FanControl', 'windSetting', { sleepWind: state.nightMode === true, naturalWind: false });
+  await endpoint.updateAttribute('FanControl', 'windSetting', { sleepWind: state.nightMode === true, naturalWind: false });
   if (layout.hasAirflowDirection && state.fanAirDirection !== null) {
     const direction = state.fanAirDirection === 'forward' ? FanControl.AirflowDirection.Forward : FanControl.AirflowDirection.Reverse;
     await endpoint.updateAttribute('FanControl', 'airflowDirection', direction);
@@ -210,19 +213,21 @@ async function applyFilters(endpoint: MatterbridgeEndpoint, layout: AccessoryLay
  * The thermostat heats while the machine is on with its heating on, and is off otherwise.
  *
  * @param {MatterbridgeEndpoint} endpoint The thermostat.
+ * @param {AccessoryLayout} layout How the controls of the device are laid out.
  * @param {EnvironmentalCareState} state The state of the machine.
  * @param {number | null} roomTemperatureInC The room temperature, when the machine gives it.
  * @returns {Promise<void>} Resolves when the thermostat is written.
  */
-async function applyThermostat(endpoint: MatterbridgeEndpoint, state: EnvironmentalCareState, roomTemperatureInC: number | null): Promise<void> {
+async function applyThermostat(endpoint: MatterbridgeEndpoint, layout: AccessoryLayout, state: EnvironmentalCareState, roomTemperatureInC: number | null): Promise<void> {
   const isHeating = state.fanPower && state.heatMode === 'heat';
   await endpoint.updateAttribute(Thermostat, 'systemMode', isHeating ? Thermostat.SystemMode.Heat : Thermostat.SystemMode.Off);
   const target = state.targetTemperatureInC === null ? null : clampHeatTarget(state.targetTemperatureInC);
   if (target !== null) await endpoint.updateAttribute(Thermostat, 'occupiedHeatingSetpoint', toMatterTemperature(target));
-  // The machine does not say whether its heater runs, so it counts as running while the room is below the setpoint.
+  // A machine that does not say whether its heater runs has it running while the room is below the setpoint.
   const isBelowTarget = roomTemperatureInC === null || target === null || roomTemperatureInC < target;
+  const isRunning = state.heatState === null ? isBelowTarget : state.heatState === 'heat';
   await endpoint.updateAttribute(Thermostat, 'thermostatRunningState', {
-    heat: isHeating && isBelowTarget,
+    heat: isHeating && isRunning,
     cool: false,
     fan: false,
     heatStage2: false,
@@ -230,6 +235,10 @@ async function applyThermostat(endpoint: MatterbridgeEndpoint, state: Environmen
     fanStage2: false,
     fanStage3: false,
   });
+  if (layout.hasTemperatureUnit && state.temperatureUnit !== null) {
+    const { Celsius, Fahrenheit } = ThermostatUserInterfaceConfiguration.TemperatureDisplayMode;
+    await endpoint.updateAttribute(ThermostatUserInterfaceConfiguration, 'temperatureDisplayMode', state.temperatureUnit === 'celsius' ? Celsius : Fahrenheit);
+  }
 }
 
 /**
@@ -278,6 +287,30 @@ function getHumiditySelectValue(state: EnvironmentalCareState): HumiditySelectVa
   if (state.autoHumidification === true) return 'auto';
   const target = state.manualHumidificationTargetInPercent;
   return target === null ? undefined : getNearestHumidityTarget(target);
+}
+
+/**
+ * Write the setting controls of a machine to their switches and mode selects
+ *
+ * Edge cases:
+ *  - a value the machine does not say is not written
+ *  - a value the machine does not take is not written: its select does not list it, and Matter refuses it
+ *
+ * @param {AccessoryEndpoints} accessory The endpoints of the device, with the switch or the mode select of each setting control.
+ * @param {EnvironmentalCareState} state The state of the machine.
+ * @returns {Promise<void>} Resolves when every setting control is written.
+ */
+async function applySettingControls(accessory: AccessoryEndpoints, state: EnvironmentalCareState): Promise<void> {
+  for (const [key, endpoint] of accessory.settingEndpoints) {
+    const control = settingControls[key];
+    if (control.kind === 'switch') {
+      const isOn = control.read(state);
+      if (isOn !== null) await endpoint.updateAttribute(OnOff, 'onOff', isOn);
+      continue;
+    }
+    const mode = control.readMode(state, accessory.capabilities);
+    if (mode !== undefined) await endpoint.updateAttribute(ModeSelect, 'currentMode', mode);
+  }
 }
 
 /**
@@ -349,10 +382,10 @@ export async function applyState(endpoints: AccessoryEndpoints, layout: Accessor
   await applySwitch(endpoints.humidifySwitch, state.fanPower && state.humidificationMode === 'humidify');
   await applySwitch(endpoints.autoHumidifySwitch, state.autoHumidification === true);
   await applySwitch(endpoints.continuousMonitoringSwitch, state.continuousMonitoring === true);
-  if (endpoints.thermostat !== undefined) await applyThermostat(endpoints.thermostat, state, roomTemperatureInC);
+  if (endpoints.thermostat !== undefined) await applyThermostat(endpoints.thermostat, layout, state, roomTemperatureInC);
   await applySelect(endpoints.oscillationSelect, oscillationSelectChoices, layout.oscillationSelectValues, getOscillationSelectValue(layout, state));
   await applySelect(endpoints.humiditySelect, humiditySelectChoices, layout.humiditySelectValues, getHumiditySelectValue(state));
   await applySelect(endpoints.tiltSelect, tiltSelectChoices, layout.tiltSelectValues, state.tiltAngleInDegrees ?? undefined);
   await applySelect(endpoints.findAndFollowSelect, findAndFollowSelectChoices, layout.findAndFollowSelectValues, state.findAndFollowMode ?? undefined);
-  await applySelect(endpoints.waterHardnessSelect, waterHardnessSelectChoices, layout.waterHardnessSelectValues, state.waterHardness ?? undefined);
+  await applySettingControls(endpoints, state);
 }

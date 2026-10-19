@@ -34,20 +34,13 @@ import type {
 import type { MatterbridgeEndpoint } from 'matterbridge';
 import type { AnsiLogger } from 'matterbridge/logger';
 import type { ActionContext } from 'matterbridge/matter';
-import { BridgedDeviceBasicInformation, FanControl, ModeSelect, OnOff, Thermostat } from 'matterbridge/matter/clusters';
+import { BridgedDeviceBasicInformation, FanControl, ModeSelect, OnOff, Thermostat, ThermostatUserInterfaceConfiguration } from 'matterbridge/matter/clusters';
 
-import type { DysonDeviceConfig } from '../config.js';
+import type { DysonDeviceConfig, SettingControlKey } from '../config.js';
 import { addReportedSensors, noReportedSensors, type ReportedSensors } from '../controls.js';
 import { getErrorMessage, getErrorStatus } from '../errors.js';
-import {
-  findAndFollowSelectChoices,
-  humiditySelectChoices,
-  oscillationSelectChoices,
-  type SelectChoices,
-  tiltSelectChoices,
-  toModeOptions,
-  waterHardnessSelectChoices,
-} from '../mapping.js';
+import { findAndFollowSelectChoices, humiditySelectChoices, oscillationSelectChoices, type SelectChoices, tiltSelectChoices, toModeOptions } from '../mapping.js';
+import { type SettingSelect, settingControls } from '../settingControls.js';
 import {
   createAirQualityEndpoint,
   createHumidityEndpoint,
@@ -159,7 +152,7 @@ export class DysonAccessory implements AccessoryEndpoints {
   readonly tiltSelect: MatterbridgeEndpoint | undefined;
   readonly findAndFollowSwitch: MatterbridgeEndpoint | undefined;
   readonly findAndFollowSelect: MatterbridgeEndpoint | undefined;
-  readonly waterHardnessSelect: MatterbridgeEndpoint | undefined;
+  readonly settingEndpoints = new Map<SettingControlKey, MatterbridgeEndpoint>();
   readonly nightModeSwitch: MatterbridgeEndpoint | undefined;
   readonly airflowDirectionSwitch: MatterbridgeEndpoint | undefined;
   readonly thermostat: MatterbridgeEndpoint | undefined;
@@ -277,10 +270,14 @@ export class DysonAccessory implements AccessoryEndpoints {
         this.scheduleCommand(`target humidity ${value}`);
       });
     }
-    if (layout.waterHardnessSelectValues.length > 0) {
-      this.waterHardnessSelect = this.createSelect('water-hardness-select', 'D', 'Water Hardness', waterHardnessSelectChoices, layout.waterHardnessSelectValues, (hardness) =>
-        this.queueControl({ waterHardness: hardness }, `water hardness ${hardness}`),
-      );
+    for (const key of layout.settingControls) {
+      const control = settingControls[key];
+      const label = control.label.toLowerCase();
+      const endpoint =
+        control.kind === 'switch'
+          ? this.createSwitch(control.key, control.code, control.label, (isOn) => this.queueControl(control.write(isOn), `${label} ${isOn ? 'on' : 'off'}`))
+          : this.createSettingSelect(control);
+      this.settingEndpoints.set(key, endpoint);
     }
     if (layout.hasContinuousMonitoringSwitch) {
       this.continuousMonitoringSwitch = this.createSwitch('continuous-monitoring', 'C', 'Continuous Monitoring', (isOn) =>
@@ -315,7 +312,7 @@ export class DysonAccessory implements AccessoryEndpoints {
       this.humidifySwitch,
       this.autoHumidifySwitch,
       this.humiditySelect,
-      this.waterHardnessSelect,
+      ...this.settingEndpoints.values(),
       this.continuousMonitoringSwitch,
       this.airQualitySensor,
       this.temperatureSensor,
@@ -525,13 +522,11 @@ export class DysonAccessory implements AccessoryEndpoints {
       endpoint.addCommandHandler('HepaFilterMonitoring.resetCondition', async () => this.resetFilter(filter));
     }
     if (this.layout.hasCarbonFilter) endpoint.addCommandHandler('ActivatedCarbonFilterMonitoring.resetCondition', async () => this.resetFilter('innerFilter'));
-    if (this.layout.hasSleepWind) {
-      this.listen(endpoint, () =>
-        endpoint.subscribeAttribute('FanControl', 'windSetting', (setting: { sleepWind?: boolean }, _previous: unknown, context: ActionContext) => {
-          if (isControllerWrite(context)) this.queueControl({ nightMode: setting.sleepWind === true }, `sleep wind ${setting.sleepWind === true ? 'on' : 'off'}`);
-        }),
-      );
-    }
+    this.listen(endpoint, () =>
+      endpoint.subscribeAttribute('FanControl', 'windSetting', (setting: { sleepWind?: boolean }, _previous: unknown, context: ActionContext) => {
+        if (isControllerWrite(context)) this.queueControl({ nightMode: setting.sleepWind === true }, `sleep wind ${setting.sleepWind === true ? 'on' : 'off'}`);
+      }),
+    );
     if (this.layout.hasAirflowDirection) {
       this.listen(endpoint, () =>
         endpoint.subscribeAttribute('FanControl', 'airflowDirection', (direction: FanControl.AirflowDirection, _previous: unknown, context: ActionContext) => {
@@ -544,7 +539,19 @@ export class DysonAccessory implements AccessoryEndpoints {
   }
 
   private createThermostat(): MatterbridgeEndpoint {
-    const endpoint = createThermostatEndpoint(this.identity, this.parent);
+    const endpoint = createThermostatEndpoint(this.identity, this.layout, this.parent);
+    if (this.layout.hasTemperatureUnit) {
+      this.listen(endpoint, () =>
+        endpoint.subscribeAttribute(
+          ThermostatUserInterfaceConfiguration,
+          'temperatureDisplayMode',
+          (mode: ThermostatUserInterfaceConfiguration.TemperatureDisplayMode, _previous: unknown, context: ActionContext) => {
+            const temperatureUnit = mode === ThermostatUserInterfaceConfiguration.TemperatureDisplayMode.Fahrenheit ? 'fahrenheit' : 'celsius';
+            if (isControllerWrite(context)) this.queueControl({ temperatureUnit }, `temperature unit ${temperatureUnit}`);
+          },
+        ),
+      );
+    }
     this.listen(endpoint, () =>
       endpoint.subscribeAttribute(Thermostat, 'systemMode', (systemMode: Thermostat.SystemMode, _previous: Thermostat.SystemMode, context: ActionContext) => {
         if (!isControllerWrite(context)) return;
@@ -658,6 +665,18 @@ export class DysonAccessory implements AccessoryEndpoints {
       }
       this.log.info(`"${this.name}" reset the life of its ${filter}`);
     });
+  }
+
+  private createSettingSelect(control: SettingSelect): MatterbridgeEndpoint {
+    const endpoint = createModeSelectEndpoint(this.identity, control.key, control.code, control.label, control.modeOptions(this.client.capabilities), this.parent);
+    this.listen(endpoint, () =>
+      endpoint.subscribeAttribute(ModeSelect, 'currentMode', (mode: number, _previous: number, context: ActionContext) => {
+        if (!isControllerWrite(context)) return;
+        const fields = control.writeMode(mode);
+        this.queueControl(fields, `${control.label.toLowerCase()} ${JSON.stringify(fields)}`);
+      }),
+    );
+    return endpoint;
   }
 
   private queueFanAuto(isOn: boolean): void {

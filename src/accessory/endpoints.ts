@@ -96,10 +96,9 @@ function addFanControl(endpoint: MatterbridgeEndpoint, layout: AccessoryLayout):
       rockSetting: { rockLeftRight: false, rockUpDown: false, rockRound: false },
     });
   }
-  if (layout.hasSleepWind) {
-    features.push(FanControl.Feature.Wind);
-    Object.assign(state, { windSupport: { sleepWind: true, naturalWind: false }, windSetting: { sleepWind: false, naturalWind: false } });
-  }
+  // Every machine has a night mode, and an app that does not show the sleep wind leaves it out.
+  features.push(FanControl.Feature.Wind);
+  Object.assign(state, { windSupport: { sleepWind: true, naturalWind: false }, windSetting: { sleepWind: false, naturalWind: false } });
   if (layout.hasAirflowDirection) {
     features.push(FanControl.Feature.AirflowDirection);
     state.airflowDirection = FanControl.AirflowDirection.Forward;
@@ -248,14 +247,22 @@ export function createModeSelectEndpoint(
 /**
  * Create the thermostat of a heater: it heats alone, to the setpoints the heater takes
  *
+ * A heater that shows a temperature in °C or °F has the unit as the display mode of the thermostat.
+ *
  * @param {EndpointIdentity} identity The device the endpoint belongs to.
+ * @param {AccessoryLayout} layout How the controls of the device are laid out.
  * @param {MatterbridgeEndpoint} [main] The main endpoint the thermostat is a part of. Left out, it is a device of its own.
  * @returns {MatterbridgeEndpoint} The endpoint, with no room temperature until the first read, and nothing subscribed yet.
  */
-export function createThermostatEndpoint(identity: EndpointIdentity, main?: MatterbridgeEndpoint): MatterbridgeEndpoint {
-  return createSideEndpoint(thermostat, identity, 'heater', 'T', 'Heater', main, false)
-    .createDefaultHeatingThermostatClusterServer(defaultHeatTargetInC, defaultHeatTargetInC, heatTargetRange.min, heatTargetRange.max)
-    .addRequiredClusters();
+export function createThermostatEndpoint(identity: EndpointIdentity, layout: AccessoryLayout, main?: MatterbridgeEndpoint): MatterbridgeEndpoint {
+  const endpoint = createSideEndpoint(thermostat, identity, 'heater', 'T', 'Heater', main, false).createDefaultHeatingThermostatClusterServer(
+    defaultHeatTargetInC,
+    defaultHeatTargetInC,
+    heatTargetRange.min,
+    heatTargetRange.max,
+  );
+  if (layout.hasTemperatureUnit) endpoint.createDefaultThermostatUserInterfaceConfigurationClusterServer();
+  return endpoint.addRequiredClusters();
 }
 
 /**

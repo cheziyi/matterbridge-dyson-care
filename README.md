@@ -56,20 +56,23 @@ Afterwards the same page lists your machines with their status: online, connecti
 
 ## How a machine appears in Matter
 
-| In Matter         | From the machine                                                                                                                      |
-| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| Air purifier      | The machine, with its power and its fan speed. You can make it a fan instead: see [Air purifier or fan](#air-purifier-or-fan)         |
-| Fan speed         | Speeds 1 to 10, as steps or as a percentage                                                                                           |
-| Auto mode         | Your choice, on a machine that has one: see [Auto mode](#auto-mode)                                                                   |
-| Oscillation       | Your choice, or the tilt of a machine that tilts: see [Oscillation](#oscillation) and [Tilt](#tilt)                                   |
-| Night mode        | Your choice: see [Night mode and airflow direction](#night-mode-and-airflow-direction)                                                |
-| Airflow direction | Your choice, on a machine that blows its air to the front or the back                                                                 |
-| Find and follow   | A switch or a mode select, on a machine that follows the people it finds: see [Find and follow](#find-and-follow)                     |
-| Heating           | A thermostat or a switch, on a heater: see [Heating](#heating)                                                                        |
-| Humidifying       | Switches or a mode select, on a humidifier: see [Humidifying](#humidifying)                                                           |
-| Water hardness    | A mode select, on a humidifier that runs a clean cycle: see [Humidifying](#humidifying)                                               |
-| Filters           | The life left in each filter, on every air purifier: see [Filters](#filters)                                                          |
-| Readings          | An air quality sensor, a temperature sensor and a humidity sensor, each once the machine gives its reading: see [Readings](#readings) |
+| In Matter         | From the machine                                                                                                                        |
+| ----------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| Air purifier      | The machine, with its power and its fan speed. You can make it a fan instead: see [Air purifier or fan](#air-purifier-or-fan)           |
+| Fan speed         | Speeds 1 to 10, as steps or as a percentage                                                                                             |
+| Auto mode         | Your choice, on a machine that has one: see [Auto mode](#auto-mode)                                                                     |
+| Oscillation       | Your choice, or the tilt of a machine that tilts: see [Oscillation](#oscillation) and [Tilt](#tilt)                                     |
+| Night mode        | Your choice: see [Night mode and airflow direction](#night-mode-and-airflow-direction)                                                  |
+| Airflow direction | Your choice, on a machine that blows its air to the front or the back                                                                   |
+| Find and follow   | A switch or a mode select, on a machine that follows the people it finds: see [Find and follow](#find-and-follow)                       |
+| Heating           | A thermostat or a switch, on a heater: see [Heating](#heating)                                                                          |
+| Humidifying       | Switches or a mode select, on a humidifier: see [Humidifying](#humidifying)                                                             |
+| Water hardness    | A mode select, on a humidifier that runs a clean cycle: see [Humidifying](#humidifying)                                                 |
+| Filters           | The life left in each filter, on every air purifier: see [Filters](#filters)                                                            |
+| More controls     | Switches or mode selects for the child lock, the UV light and the like, on a machine that has them: see [More controls](#more-controls) |
+| Readings          | An air quality sensor, a temperature sensor and a humidity sensor, each once the machine gives its reading: see [Readings](#readings)   |
+
+A switch or a mode select is for the Matter apps that do not show a control in its place on the fan control: it comes beside that place, never in place of it, so the place stays for the apps that show it. A control that has a place on the fan control is never hidden, because an app that does not show the place leaves it out.
 
 ### How it is built in Matter
 
@@ -145,12 +148,11 @@ A step takes the place of the Auto fan mode, because in that mode Matter holds n
 
 ### Oscillation
 
-| Option        | In Matter                                                                                                                                                   |
-| ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| On the fan    | The left and right rocking of the fan control, as Matter has it. Not every app shows it                                                                     |
-| A switch      | A switch named `<name> Oscillation`. On sweeps the angle set in the Dyson app                                                                               |
-| A mode select | A mode select named `<name> Oscillation`, with Off and the angles the machine sweeps: see below. Few Matter apps show it: see [Mode selects](#mode-selects) |
-| Not shown     | No oscillation control. The oscillation stays as the Dyson app sets it                                                                                      |
+| Option        | In Matter                                                                                                                                                                            |
+| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| On the fan    | The left and right rocking of the fan control alone, as Matter has it. Not every app shows it                                                                                        |
+| A switch      | A switch named `<name> Oscillation`, and the rocking as well. On sweeps the angle set in the Dyson app                                                                               |
+| A mode select | A mode select named `<name> Oscillation`, and the rocking as well, with Off and the angles the machine sweeps: see below. Few Matter apps show it: see [Mode selects](#mode-selects) |
 
 The mode select offers what the machine takes:
 
@@ -171,19 +173,17 @@ The Big+Quiet tilts in place of oscillating: to 0°, 25° or 50°, or back and f
 | Option        | In Matter                                                                                                                                       |
 | ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
 | On the fan    | The up and down rocking of the fan control. On breezes, and off tilts the machine back to the angle it was at, or to 0°. Not every app shows it |
-| A switch      | A switch named `<name> Oscillation`, which breezes the same way                                                                                 |
-| A mode select | A mode select named `<name> Tilt`, with 0°, 25°, 50° and Breeze                                                                                 |
-| Not shown     | The tilt stays as the Dyson app sets it                                                                                                         |
+| A switch      | A switch named `<name> Oscillation`, and the rocking as well, which breezes the same way                                                        |
+| A mode select | A mode select named `<name> Tilt`, and the rocking as well, with 0°, 25°, 50° and Breeze                                                        |
 
-A tilt turns the machine on when the Dyson app sets it. From Matter it leaves a machine that is off as it is, as turning the auto mode off does.
+A tilt turns the machine on when the Dyson app sets it. From Matter it leaves a machine that is off as it is: see [Power](#power).
 
 ### Night mode and airflow direction
 
-| Option     | Night mode                                                                  | Airflow direction                                                                             |
-| ---------- | --------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
-| On the fan | The sleep wind of the fan control, as Matter has it. Not every app shows it | The airflow direction of the fan control: forward is the front. Not every app shows it        |
-| A switch   | A switch named `<name> Night Mode`                                          | A switch named `<name> Front Airflow`. On blows the air out of the front, off out of the back |
-| Not shown  | The night mode stays as the Dyson app sets it                               | The direction stays as the Dyson app sets it                                                  |
+| Option     | Night mode                                                                        | Airflow direction                                                                                                                                   |
+| ---------- | --------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| On the fan | The sleep wind of the fan control alone, as Matter has it. Not every app shows it | The airflow direction of the fan control alone: forward is the front. Not every app shows it                                                        |
+| A switch   | A switch named `<name> Night Mode`, and the sleep wind of the fan control as well | A switch named `<name> Front Airflow`, and the airflow direction of the fan control as well. On blows the air out of the front, off out of the back |
 
 The airflow direction is offered on a machine that blows its air to the front or the back.
 
@@ -207,7 +207,7 @@ On a heater, the heating appears in one of these places. It runs only while the 
 | A switch     | A switch named `<name> Heat`. It heats to the setpoint set in the Dyson app                                                                                                   |
 | Not shown    | The heating stays as the Dyson app sets it                                                                                                                                    |
 
-The machine does not say whether its heater is running, so the thermostat shows it heating while the machine heats and the room is below the setpoint.
+The thermostat shows it heating while the heater runs, as the machine says. A machine that does not say so shows it heating while the room is below the setpoint. A setpoint changed in Matter leaves the heating as it is. On a heater that shows a temperature in °C or °F, the thermostat has that unit as its display mode, which a Matter app can set.
 
 ### Humidifying
 
@@ -235,6 +235,22 @@ A filter warns that it is about to need replacing at 10 % or less, and needs rep
 ### Mode selects
 
 A mode select is the Matter device type that picks one value from a list, as a drop-down does. **Few Matter apps show a mode select.** Home Assistant shows each one as a select among the settings of the device. Apple Home is reported not to show them, and Google Home, Amazon Alexa and SmartThings do not list them among the devices they support. This has not been tested with this plugin. In the other apps, the switches are the way to reach these controls.
+
+### More controls
+
+A machine that has one of these controls can get a switch or a mode select for it, which Matter has no place for beside the fan:
+
+| Control            | In Matter                                                                                     | On                                             |
+| ------------------ | --------------------------------------------------------------------------------------------- | ---------------------------------------------- |
+| Child lock         | A switch named `<name> Child Lock`. On locks the buttons of the machine                       | The types 635, 739, 918, 965, 997 and 1018     |
+| UV light           | A switch named `<name> UV Light`                                                              | The machines dyson-control reads as having one |
+| Ioniser            | A switch named `<name> Ioniser`                                                               | The machines dyson-control reads as having one |
+| Jet focus          | A switch named `<name> Jet Focus`. On focuses the air into one stream, and off diffuses it    | The type 455                                   |
+| Indirect airflow   | A switch named `<name> Indirect Airflow`. On tilts the nozzle to 45°, and off points it at 0° | The type 831                                   |
+| Air quality target | A mode select named `<name> Air Quality Target`: the air quality the auto mode aims for       | Machines of the first generation               |
+| Wick drying        | A switch named `<name> Wick Drying`, and a mode select for its speed: slow, normal or fast    | The type 965                                   |
+
+See dyson-control's [capabilities](https://github.com/cheziyi/dyson-control#capabilities) for which models have a UV light and an ioniser. The setup page offers each only on a machine that has it.
 
 ### Readings
 
@@ -272,13 +288,13 @@ In the Options step, a preset fills in every choice above for what the machine c
 
 | Preset              | Fan speed  | Auto mode  | Oscillation, night mode | Airflow direction | Heating    | Humidifying   | Continuous monitoring | Sensors | Parts of the main device |
 | ------------------- | ---------- | ---------- | ----------------------- | ----------------- | ---------- | ------------- | --------------------- | ------- | ------------------------ |
-| Apple Home          | Percentage | On the fan | Switches                | Not shown         | Thermostat | Switches      | No switch             | All     | No                       |
-| Google Home         | Steps      | A switch   | Switches                | Not shown         | Thermostat | Switches      | No switch             | All     | No                       |
+| Apple Home          | Percentage | On the fan | Switches                | On the fan        | Thermostat | Switches      | No switch             | All     | No                       |
+| Google Home         | Steps      | A switch   | Switches                | On the fan        | Thermostat | Switches      | No switch             | All     | No                       |
 | Full Matter support | Steps      | On the fan | On the fan              | On the fan        | Thermostat | A mode select | A switch              | All     | Yes                      |
 
-Find and follow is a switch in the Apple Home and Google Home presets and a mode select in the Full Matter support preset, which alone adds the water hardness select: the hardness is set once, rather than used every day.
+Find and follow is a switch in the Apple Home and Google Home presets and a mode select in the Full Matter support preset. Every preset adds the switches for the jet focus, the indirect airflow, the UV light and the ioniser, and the Full Matter support preset alone the controls of what is set once rather than used every day: the child lock, the air quality target, the wick drying and the water hardness.
 
-Every preset makes a machine that measures the air an air purifier, and one that does not a fan. Apple Home and Google Home are not known to show the rocking, the sleep wind or the airflow direction of a fan control, which is why their presets use switches for them. The Google Home preset adds a switch for the auto mode as well, and the Apple Home preset leaves the auto mode on the fan control alone. This has not been tested with this plugin: try the native places in your app, and pick the switches where they do not show.
+Every preset makes a machine that measures the air an air purifier, and one that does not a fan. Apple Home and Google Home are not known to show the rocking, the sleep wind or the airflow direction of a fan control, which is why their presets add switches for the oscillation and the night mode. The airflow direction, set once rather than used every day, stays on the fan control alone. The Google Home preset adds a switch for the auto mode as well, and the Apple Home preset leaves the auto mode on the fan control alone. The switches come beside the places on the fan control, which stay for the apps that show them. This has not been tested with this plugin.
 
 ### One device or several
 
@@ -320,11 +336,12 @@ A stored device that this version of the plugin cannot read, for example one sto
 - **It needs the Dyson cloud.** Each machine is reached through the Dyson cloud, which needs a route to the internet: without one, the machines show as unreachable. See dyson-control's [connectivity](https://github.com/cheziyi/dyson-control/blob/main/DESIGN.md#connectivity) for why it does not talk to a machine over the local network.
 - **The sign-in can expire.** How long the cloud accepts a sign-in is not known. When it stops accepting it, the plugin logs a warning and the setup page asks you to sign in again. Signing out leaves the machines in Matter, unreachable, with their rooms and automations, until you sign in again.
 - **A change on the machine shows up at once.** A machine sends its state to the cloud when it changes, from its remote or the Dyson app, and the plugin writes it to Matter as it comes.
+- <a id="power"></a>**Only some controls turn a machine on.** The power, a fan speed or the auto mode, the heating, the humidifying and find and follow turn a machine that is off on. Every other control, such as the night mode, the oscillation or a switch of [More controls](#more-controls), sets the machine and leaves it off, though the Dyson app turns the machine on for them.
 - **Commands are grouped.** A Matter app often changes several things at once. The plugin collects the changes of 300 milliseconds and sends them to the machine as one command.
 - **A device is reported as unreachable** after two reads in a row fail, or when its connection to the cloud closes and does not open again. It is reachable again on the first read that works.
 - **The setup page is as open as Matterbridge itself.** Anyone who can reach the Matterbridge frontend can use it, and so control the machines of the signed-in account. It never returns the stored sign-in token.
 - **Faults are logged.** The plugin asks a machine for its faults when it first reads it and every 15 minutes after, and takes those it sends as they change. It logs each change, and the setup page shows them.
-- **Not in Matter:** the sleep timer, the clean cycle and the faults, which the setup page shows instead. A machine on the RabbitMQ broker of the Dyson cloud, and an account that signs in with a mobile number, are not supported by dyson-control.
+- **Not in Matter:** the sleep timer, the clean cycle, the drying of a wick and the faults, which the setup page shows instead, and the temperature unit of a machine without a thermostat. A machine on the RabbitMQ broker of the Dyson cloud, and an account that signs in with a mobile number, are not supported by dyson-control.
 
 ## Development
 

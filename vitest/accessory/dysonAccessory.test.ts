@@ -25,6 +25,7 @@ import {
   HepaFilterMonitoring,
   ResourceMonitoring,
   Thermostat,
+  ThermostatUserInterfaceConfiguration,
 } from 'matterbridge/matter/clusters';
 import { log, setupTest } from 'matterbridge/vitest-utils';
 import { addDevice, aggregator, createServerNode, createTestEnvironment, startServerNode, stopServerNode } from 'matterbridge/vitest-utils/matter';
@@ -376,6 +377,20 @@ describe('DysonAccessory', () => {
       await writeAsController(accessory.continuousMonitoringSwitch, 'OnOff', 'onOff', false);
       await accessory.flushCommands();
       expect(client.setState).toHaveBeenCalledWith({ nightMode: true, fanAirDirection: 'backward', continuousMonitoring: false });
+      // The rocking and the airflow direction stay beside the oscillation select and the airflow switch.
+      expect(accessory.endpoint.getAttribute('FanControl', 'rockSupport')).toEqual({ rockLeftRight: true, rockUpDown: false, rockRound: false });
+      expect(accessory.endpoint.getAttribute('FanControl', 'airflowDirection')).toBe(FanControl.AirflowDirection.Reverse);
+      await writeAsController(accessory.endpoint, 'FanControl', 'airflowDirection', FanControl.AirflowDirection.Forward);
+      await accessory.flushCommands();
+      expect(client.setState).toHaveBeenLastCalledWith({ fanAirDirection: 'forward' });
+      expect(accessory.airflowDirectionSwitch?.getAttribute(OnOff, 'onOff')).toBe(true);
+      // The night mode has its switch and the sleep wind of the fan control, which follow each other.
+      expect(accessory.endpoint.getAttribute('FanControl', 'windSupport')).toEqual({ sleepWind: true, naturalWind: false });
+      expect(accessory.endpoint.getAttribute('FanControl', 'windSetting')).toEqual({ sleepWind: true, naturalWind: false });
+      await writeAsController(accessory.endpoint, 'FanControl', 'windSetting', { sleepWind: false, naturalWind: false });
+      await accessory.flushCommands();
+      expect(client.setState).toHaveBeenLastCalledWith({ nightMode: false });
+      expect(accessory.nightModeSwitch?.getAttribute(OnOff, 'onOff')).toBe(false);
     });
 
     it('should ignore a thermostat mode a heater does not have', async () => {
@@ -803,6 +818,8 @@ describe('DysonAccessory', () => {
       await withSwitch.flushCommands();
       expect(switchClient.setState).toHaveBeenLastCalledWith({ tiltAngleInDegrees: 'breeze' });
       expect(withSwitch.oscillationSwitch?.getAttribute(OnOff, 'onOff')).toBe(true);
+      // The up and down rocking stays beside the switch, and follows it.
+      expect(withSwitch.endpoint.getAttribute(FanControl, 'rockSetting')).toEqual({ rockLeftRight: false, rockUpDown: true, rockRound: false });
       await withSwitch.dispose();
 
       const selected = { ...bigQuiet, serialNumber: 'NK6-EU-MHA0053A' };
@@ -989,10 +1006,84 @@ describe('DysonAccessory', () => {
       const accessory = new DysonAccessory({ config, createClient: factoryOf(client), log, vendorId, commandDelayInMs: 500 });
       await addAccessory(accessory);
       await accessory.start();
-      expect(accessory.waterHardnessSelect?.getAttribute(ModeSelect, 'currentMode')).toBe(1);
-      await writeAsController(accessory.waterHardnessSelect, 'ModeSelect', 'currentMode', 2);
+      expect(accessory.settingEndpoints.get('hasWaterHardnessSelect')?.getAttribute(ModeSelect, 'currentMode')).toBe(1);
+      await writeAsController(accessory.settingEndpoints.get('hasWaterHardnessSelect'), 'ModeSelect', 'currentMode', 2);
       await accessory.flushCommands();
       expect(client.setState).toHaveBeenLastCalledWith({ waterHardness: 'hard' });
+      await accessory.dispose();
+    });
+  });
+
+  describe('machines with more controls', () => {
+    const bare = { hasAirQualitySensor: false, hasTemperatureSensor: false, hasHumiditySensor: false } as const;
+
+    it('should show the switches of the child lock, the UV light and the ioniser, and keep a machine that is off off', async () => {
+      const machine = { serialNumber: 'NK6-EU-MHA0091A', type: '997', model: 'EAST', category: 'environmentalCare' as const, name: 'Loft', productName: 'Purifier Big+Quiet' };
+      const client = createFakeClient(machine, { fanPower: false, childLockMode: false, uvMode: true, ionisationMode: null });
+      const config = createDeviceConfig(machine, { ...bare, hasChildLockSwitch: true, hasUvLightSwitch: true, hasIoniserSwitch: true });
+      const accessory = new DysonAccessory({ config, createClient: factoryOf(client), log, vendorId, commandDelayInMs: 500 });
+      await addAccessory(accessory);
+      await accessory.start();
+      const childLock = accessory.settingEndpoints.get('hasChildLockSwitch');
+      expect(childLock?.getAttribute(BridgedDeviceBasicInformation, 'serialNumber')).toBe('NK6-EU-MHA0091A-K');
+      expect(childLock?.getAttribute(OnOff, 'onOff')).toBe(false);
+      expect(accessory.settingEndpoints.get('hasUvLightSwitch')?.getAttribute(OnOff, 'onOff')).toBe(true);
+      // The machine does not say whether its ioniser is on, so the switch stays as it was made.
+      expect(accessory.settingEndpoints.get('hasIoniserSwitch')?.getAttribute(OnOff, 'onOff')).toBe(false);
+      await writeAsController(childLock, 'OnOff', 'onOff', true);
+      await accessory.flushCommands();
+      expect(client.setState).toHaveBeenLastCalledWith({ childLockMode: true, fanPower: false });
+      expect(childLock?.getAttribute(OnOff, 'onOff')).toBe(true);
+      expect(accessory.endpoint.getAttribute(OnOff, 'onOff')).toBe(false);
+      await writeAsController(childLock, 'OnOff', 'onOff', false);
+      await accessory.flushCommands();
+      expect(client.setState).toHaveBeenLastCalledWith({ childLockMode: false, fanPower: false });
+      await accessory.dispose();
+    });
+
+    it('should pick the air quality the auto mode aims for on a select, beside a thermostat without a unit', async () => {
+      const machine = { serialNumber: 'NK6-EU-MHA0092A', type: '455', category: 'environmentalCare' as const, name: 'Study', productName: 'Pure Hot+Cool Link' };
+      const client = createFakeClient(machine, { airQualityTarget: 'sensitive' });
+      const config = createDeviceConfig(machine, { ...bare, heatControl: 'thermostat', hasAirQualityTargetSelect: true });
+      const accessory = new DysonAccessory({ config, createClient: factoryOf(client), log, vendorId, commandDelayInMs: 500 });
+      await addAccessory(accessory);
+      await accessory.start();
+      const select = accessory.settingEndpoints.get('hasAirQualityTargetSelect');
+      expect(select?.getAttribute(ModeSelect, 'currentMode')).toBe(1);
+      await writeAsController(select, 'ModeSelect', 'currentMode', 2);
+      await accessory.flushCommands();
+      expect(client.setState).toHaveBeenLastCalledWith({ airQualityTarget: 'verySensitive' });
+      expect(select?.getAttribute(ModeSelect, 'currentMode')).toBe(2);
+      // A target the machine does not say leaves the select as it was.
+      client.state.airQualityTarget = null;
+      await accessory.refresh();
+      expect(select?.getAttribute(ModeSelect, 'currentMode')).toBe(2);
+      // A machine of the first generation shows no temperature unit.
+      expect(accessory.thermostat?.hasClusterServer('ThermostatUserInterfaceConfiguration')).toBe(false);
+      await accessory.dispose();
+    });
+
+    it('should show the temperature unit and whether the heater runs on the thermostat, and send the unit a controller sets', async () => {
+      const machine = { ...hotCool, serialNumber: 'NK6-EU-MHA0093A' };
+      const client = createFakeClient(machine, { heatMode: 'heat', targetTemperatureInC: 25, heatState: 'off', temperatureUnit: 'fahrenheit' });
+      const config = createDeviceConfig(machine, { ...bare, heatControl: 'thermostat' });
+      const accessory = new DysonAccessory({ config, createClient: factoryOf(client), log, vendorId, commandDelayInMs: 500 });
+      await addAccessory(accessory);
+      await accessory.start();
+      const { thermostat } = accessory;
+      const { Celsius, Fahrenheit } = ThermostatUserInterfaceConfiguration.TemperatureDisplayMode;
+      expect(thermostat?.getAttribute(ThermostatUserInterfaceConfiguration, 'temperatureDisplayMode')).toBe(Fahrenheit);
+      // The room is below the setpoint, but the machine says its heater does not run.
+      expect(thermostat?.getAttribute(Thermostat, 'thermostatRunningState')).toMatchObject({ heat: false });
+      client.state.heatState = 'heat';
+      await accessory.refresh();
+      expect(thermostat?.getAttribute(Thermostat, 'thermostatRunningState')).toMatchObject({ heat: true });
+      await writeAsController(thermostat, 'ThermostatUserInterfaceConfiguration', 'temperatureDisplayMode', Celsius);
+      await accessory.flushCommands();
+      expect(client.setState).toHaveBeenLastCalledWith({ temperatureUnit: 'celsius' });
+      await writeAsController(thermostat, 'ThermostatUserInterfaceConfiguration', 'temperatureDisplayMode', Fahrenheit);
+      await accessory.flushCommands();
+      expect(client.setState).toHaveBeenLastCalledWith({ temperatureUnit: 'fahrenheit' });
       await accessory.dispose();
     });
   });

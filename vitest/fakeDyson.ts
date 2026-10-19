@@ -111,6 +111,14 @@ export function createDeviceConfig(machine: DysonMachine = purifierCool, overrid
     heatControl: 'thermostat',
     humidificationControl: 'select',
     findAndFollowControl: 'hidden',
+    hasChildLockSwitch: false,
+    hasUvLightSwitch: false,
+    hasIoniserSwitch: false,
+    hasJetFocusSwitch: false,
+    hasIndirectAirflowSwitch: false,
+    hasAirQualityTargetSelect: false,
+    hasWickDryingSwitch: false,
+    hasWickDryingSpeedSelect: false,
     hasWaterHardnessSelect: false,
     hasContinuousMonitoringSwitch: false,
     hasAirQualitySensor: true,
@@ -199,6 +207,9 @@ export function createFaults(overrides: Partial<EnvironmentalCareFaults> = {}): 
   return { productErrors: [], productWarnings: [], moduleErrors: [], moduleWarnings: [], ...overrides };
 }
 
+/** The fields dyson-control sends to a machine without turning it on. */
+const keepsMachineOff = new Set(['continuousMonitoring', 'waterHardness', 'temperatureUnit', 'wickDryingMode', 'wickDryingSpeed']);
+
 /**
  * Build a client that holds the state of its machine in memory, and changes it as a machine does
  *
@@ -230,6 +241,15 @@ export function createFakeClient(machine: DysonMachine = purifierCool, state: Pa
       tiltAngleInDegrees: null,
       findAndFollowMode: null,
       waterHardness: null,
+      childLockMode: null,
+      temperatureUnit: null,
+      nozzleAngle: null,
+      focusDiffuse: null,
+      airQualityTarget: null,
+      wickDryingMode: null,
+      wickDryingSpeed: null,
+      uvMode: null,
+      ionisationMode: null,
       oscillationState: null,
       findAndFollowState: null,
       cleanCycleState: null,
@@ -240,21 +260,29 @@ export function createFakeClient(machine: DysonMachine = purifierCool, state: Pa
       outerFilterLifeInPercent: null,
       innerFilterType: null,
       outerFilterType: null,
+      heatState: null,
+      humidificationState: null,
+      wickDryingState: null,
+      wickDryingTimeRemainingInMinutes: null,
       ...state,
     },
     sensors: createSensors(),
     connect: vi.fn(async () => Promise.resolve()),
     disconnect: vi.fn(async () => Promise.resolve()),
     getState: vi.fn(async () => ({ ...client.state })),
-    // As dyson-control and the machine do: a speed, the auto mode, a tilt or find and follow turn the machine on, and a speed leaves the auto mode.
+    // As dyson-control 0.7.0 and a later machine do: nearly every field turns the machine on, as the Dyson app has it, a
+    // setpoint turns the heating on and a target or the auto humidifying the humidifying, and a speed leaves the auto mode.
     setState: vi.fn(async (control: EnvironmentalCareControl) => {
-      const runs =
-        control.autoMode !== undefined ||
-        control.fanSpeed !== undefined ||
-        control.tiltAngleInDegrees !== undefined ||
-        (control.findAndFollowMode !== undefined && control.findAndFollowMode !== 'off');
+      const runs = Object.entries(control).some(([field, value]) => {
+        if (field === 'fanPower' || keepsMachineOff.has(field)) return false;
+        if (field === 'oscillationMode') return value !== 'off' && value !== 'idleOff';
+        return field !== 'findAndFollowMode' || value !== 'off';
+      });
       Object.assign(client.state, control);
       if (control.fanPower === undefined && runs) client.state.fanPower = true;
+      if (control.targetTemperatureInC !== undefined && control.heatMode === undefined) client.state.heatMode = 'heat';
+      const humidifies = control.autoHumidification !== undefined || control.manualHumidificationTargetInPercent !== undefined;
+      if (humidifies && control.humidificationMode === undefined) client.state.humidificationMode = 'humidify';
       if (control.fanSpeed !== undefined && control.autoMode === undefined) client.state.autoMode = false;
       if (control.autoMode === true) client.state.fanSpeed = null;
     }),

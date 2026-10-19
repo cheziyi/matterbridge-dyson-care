@@ -40,6 +40,8 @@ export interface MachineReport {
     remainingTimeToNextInHours: number | null;
     remainingTimeOfActiveInMinutes: number | null;
   };
+  /** The drying of the wick of a humidifier, while it dries, and the minutes it has left when the machine says. */
+  wickDrying?: { remainingTimeInMinutes: number | null };
   /** Each fault the machine reports by Dyson's name, such as `filterReplacement`, or undefined until it has reported its faults. */
   faults?: string[];
 }
@@ -65,6 +67,7 @@ export function getMachineReport(state: EnvironmentalCareState | undefined, faul
         remainingTimeOfActiveInMinutes: state.remainingTimeOfActiveCleanCycleInMinutes,
       };
     }
+    if (state.wickDryingState === 'wickDrying') report.wickDrying = { remainingTimeInMinutes: state.wickDryingTimeRemainingInMinutes };
   }
   if (faults !== undefined) report.faults = faults;
   return report;

@@ -5,8 +5,21 @@
  * @license Apache-2.0
  */
 
-import type { AvailableControls, Exposure, Machine, ReportedSensors, StoredDevice } from './api.js';
+import type { AvailableControls, Exposure, Machine, ReportedSensors, SettingControlKey, StoredDevice } from './api.js';
 import { type Draft, view } from './state.js';
+
+/** Each setting that adds a switch or a mode select for a control of the machine: `SETTING_CONTROLS` in the plugin. */
+export const settingControlKeys: readonly SettingControlKey[] = [
+  'hasChildLockSwitch',
+  'hasUvLightSwitch',
+  'hasIoniserSwitch',
+  'hasJetFocusSwitch',
+  'hasIndirectAirflowSwitch',
+  'hasAirQualityTargetSelect',
+  'hasWickDryingSwitch',
+  'hasWickDryingSpeedSelect',
+  'hasWaterHardnessSelect',
+];
 
 /** Copy the choices of how a device appears in Matter, and nothing else. */
 export function pickExposure(source: Exposure): Exposure {
@@ -20,6 +33,14 @@ export function pickExposure(source: Exposure): Exposure {
     heatControl,
     humidificationControl,
     findAndFollowControl,
+    hasChildLockSwitch,
+    hasUvLightSwitch,
+    hasIoniserSwitch,
+    hasJetFocusSwitch,
+    hasIndirectAirflowSwitch,
+    hasAirQualityTargetSelect,
+    hasWickDryingSwitch,
+    hasWickDryingSpeedSelect,
     hasWaterHardnessSelect,
     hasContinuousMonitoringSwitch,
     hasAirQualitySensor,
@@ -37,6 +58,14 @@ export function pickExposure(source: Exposure): Exposure {
     heatControl,
     humidificationControl,
     findAndFollowControl,
+    hasChildLockSwitch,
+    hasUvLightSwitch,
+    hasIoniserSwitch,
+    hasJetFocusSwitch,
+    hasIndirectAirflowSwitch,
+    hasAirQualityTargetSelect,
+    hasWickDryingSwitch,
+    hasWickDryingSpeedSelect,
     hasWaterHardnessSelect,
     hasContinuousMonitoringSwitch,
     hasAirQualitySensor,
@@ -53,13 +82,12 @@ export function pickExposure(source: Exposure): Exposure {
 export function fitExposure(exposure: Exposure, controls: AvailableControls): Exposure {
   const fitted = pickExposure(exposure);
   if (!controls.hasAutoMode) fitted.fanAutoControl = 'native';
-  if (!controls.hasOscillation) fitted.oscillationControl = 'hidden';
-  else if (fitted.oscillationControl === 'select' && controls.oscillationAngles.length === 0 && controls.tiltAngles.length === 0) fitted.oscillationControl = 'switch';
-  if (!controls.hasAirflowDirection) fitted.airflowDirectionControl = 'hidden';
+  const hasNoAngle = controls.oscillationAngles.length === 0 && controls.tiltAngles.length === 0;
+  if (controls.hasOscillation && fitted.oscillationControl === 'select' && hasNoAngle) fitted.oscillationControl = 'switch';
   if (!controls.hasHeat) fitted.heatControl = 'hidden';
   if (!controls.hasHumidification) fitted.humidificationControl = 'hidden';
   if (!controls.hasFindAndFollow) fitted.findAndFollowControl = 'hidden';
-  fitted.hasWaterHardnessSelect &&= controls.hasWaterHardness;
+  for (const key of settingControlKeys) fitted[key] &&= controls.settingControls.includes(key);
   fitted.hasContinuousMonitoringSwitch &&= controls.hasContinuousMonitoring;
   fitted.hasAirQualitySensor &&= controls.hasAirQualitySensor;
   return fitted;
@@ -78,6 +106,14 @@ const defaultExposure: Exposure = {
   heatControl: 'thermostat',
   humidificationControl: 'select',
   findAndFollowControl: 'hidden',
+  hasChildLockSwitch: false,
+  hasUvLightSwitch: false,
+  hasIoniserSwitch: false,
+  hasJetFocusSwitch: false,
+  hasIndirectAirflowSwitch: false,
+  hasAirQualityTargetSelect: false,
+  hasWickDryingSwitch: false,
+  hasWickDryingSpeedSelect: false,
   hasWaterHardnessSelect: false,
   hasContinuousMonitoringSwitch: false,
   hasAirQualitySensor: true,
@@ -143,7 +179,7 @@ export const noControls: AvailableControls = {
   hasHeat: false,
   hasHumidification: false,
   hasAutoHumidification: false,
-  hasWaterHardness: false,
+  settingControls: [],
   hasFilterLife: false,
   hasContinuousMonitoring: false,
   hasAirQualitySensor: false,

@@ -6,7 +6,7 @@
  */
 
 import { goHome, saveDraft } from '../actions.js';
-import type { AvailableControls, Exposure, OscillationAngleChoice, ReportedSensors } from '../api.js';
+import type { AvailableControls, Exposure, OscillationAngleChoice, ReportedSensors, SettingControlKey } from '../api.js';
 import { button, notice, steps, unitHeader, unitStrip } from '../components.js';
 import { type Child, h } from '../dom.js';
 import { noControls, noReportedSensors } from '../exposure.js';
@@ -168,10 +168,9 @@ function tiltSection(draft: Draft): HTMLElement {
   return radioSection(
     'Tilt',
     'The machine tilts to 0°, 25° or 50°, or breezes: it tilts up and down. Tilting turns the machine on in the Dyson app, but not from Matter: a machine that is off stays off.',
-    radio('oscillation', 'native', draft.oscillationControl, 'On the fan', `The up and down rocking of the fan control, as Matter has it: on breezes, off goes back to the angle it was tilted to. ${fanFeatureSupport}`, pick),
-    radio('oscillation', 'switch', draft.oscillationControl, 'A switch', `${placement(draft, 'Oscillation', true)}. On breezes, off goes back to the angle it was tilted to.`, pick),
-    radio('oscillation', 'select', draft.oscillationControl, 'A mode select', `${placement(draft, 'Tilt', true)}, and picks 0°, 25°, 50° or breeze. ${selectSupport}`, pick),
-    radio('oscillation', 'hidden', draft.oscillationControl, 'Not shown in Matter', 'The tilt stays as the Dyson app sets it.', pick),
+    radio('oscillation', 'native', draft.oscillationControl, 'On the fan only', `The up and down rocking of the fan control, as Matter has it: on breezes, off goes back to the angle it was tilted to. ${fanFeatureSupport}`, pick),
+    radio('oscillation', 'switch', draft.oscillationControl, 'A switch', `${placement(draft, 'Oscillation', true)}. On breezes, off goes back to the angle it was tilted to. The rocking of the fan control stays as well.`, pick),
+    radio('oscillation', 'select', draft.oscillationControl, 'A mode select', `${placement(draft, 'Tilt', true)}, and picks 0°, 25°, 50° or breeze. The rocking of the fan control stays as well. ${selectSupport}`, pick),
   );
 }
 
@@ -184,10 +183,9 @@ function oscillationSection(draft: Draft, controls: AvailableControls): Child {
   return radioSection(
     'Oscillation',
     '',
-    radio('oscillation', 'native', current, 'On the fan', `The left and right rocking of the fan control, as Matter has it. ${fanFeatureSupport}`, pick),
-    radio('oscillation', 'switch', current, 'A switch', `${placement(draft, 'Oscillation', true)}. On sweeps the angle set in the Dyson app.`, pick),
-    hasSelect ? radio('oscillation', 'select', current, 'A mode select', `${placement(draft, 'Oscillation', true)}, and picks off or one of ${listAngles(controls.oscillationAngles)}. ${selectSupport}`, pick) : null,
-    radio('oscillation', 'hidden', current, 'Not shown in Matter', 'The oscillation stays as the Dyson app sets it.', pick),
+    radio('oscillation', 'native', current, 'On the fan only', `The left and right rocking of the fan control, as Matter has it. ${fanFeatureSupport}`, pick),
+    radio('oscillation', 'switch', current, 'A switch', `${placement(draft, 'Oscillation', true)}. On sweeps the angle set in the Dyson app. The rocking of the fan control stays as well.`, pick),
+    hasSelect ? radio('oscillation', 'select', current, 'A mode select', `${placement(draft, 'Oscillation', true)}, and picks off or one of ${listAngles(controls.oscillationAngles)}. The rocking of the fan control stays as well. ${selectSupport}`, pick) : null,
   );
 }
 
@@ -196,9 +194,8 @@ function nightModeSection(draft: Draft): HTMLElement {
   return radioSection(
     'Night mode',
     'In its night mode the machine runs quieter and dims its display.',
-    radio('night-mode', 'native', draft.nightModeControl, 'On the fan', `The sleep wind of the fan control, as Matter has it. ${fanFeatureSupport}`, pick),
-    radio('night-mode', 'switch', draft.nightModeControl, 'A switch', `${placement(draft, 'Night Mode', true)}.`, pick),
-    radio('night-mode', 'hidden', draft.nightModeControl, 'Not shown in Matter', 'The night mode stays as the Dyson app sets it.', pick),
+    radio('night-mode', 'native', draft.nightModeControl, 'On the fan only', `The sleep wind of the fan control, as Matter has it. ${fanFeatureSupport}`, pick),
+    radio('night-mode', 'switch', draft.nightModeControl, 'A switch', `${placement(draft, 'Night Mode', true)}. The night mode stays the sleep wind of the fan control as well.`, pick),
   );
 }
 
@@ -208,9 +205,8 @@ function airflowSection(draft: Draft, controls: AvailableControls): Child {
   return radioSection(
     'Airflow direction',
     'The machine blows its air out of the front, or out of the back to circulate the air without cooling you.',
-    radio('airflow', 'native', draft.airflowDirectionControl, 'On the fan', `The airflow direction of the fan control, as Matter has it: forward is the front. ${fanFeatureSupport}`, pick),
-    radio('airflow', 'switch', draft.airflowDirectionControl, 'A switch', `${placement(draft, 'Front Airflow', true)}. On blows the air out of the front, off out of the back.`, pick),
-    radio('airflow', 'hidden', draft.airflowDirectionControl, 'Not shown in Matter', 'The direction stays as the Dyson app sets it.', pick),
+    radio('airflow', 'native', draft.airflowDirectionControl, 'On the fan only', `The airflow direction of the fan control, as Matter has it: forward is the front. ${fanFeatureSupport}`, pick),
+    radio('airflow', 'switch', draft.airflowDirectionControl, 'A switch', `${placement(draft, 'Front Airflow', true)}. On blows the air out of the front, off out of the back. The airflow direction of the fan control stays as well.`, pick),
   );
 }
 
@@ -252,8 +248,42 @@ function humidifySection(draft: Draft, controls: AvailableControls): Child {
   );
 }
 
+// Each setting control but the water hardness, which the clean cycle has: its label in Matter, and what it does.
+const moreControls: Readonly<Record<Exclude<SettingControlKey, 'hasWaterHardnessSelect'>, { label: string; text: string; isSelect: boolean }>> = {
+  hasChildLockSwitch: { label: 'Child Lock', text: 'On locks the buttons of the machine.', isSelect: false },
+  hasUvLightSwitch: { label: 'UV Light', text: 'On turns the UV light of the machine on.', isSelect: false },
+  hasIoniserSwitch: { label: 'Ioniser', text: 'On turns the ioniser of the machine on.', isSelect: false },
+  hasJetFocusSwitch: { label: 'Jet Focus', text: 'On focuses the air into one stream, and off diffuses it.', isSelect: false },
+  hasIndirectAirflowSwitch: { label: 'Indirect Airflow', text: 'On tilts the nozzle to 45°, and off points it straight.', isSelect: false },
+  hasAirQualityTargetSelect: { label: 'Air Quality Target', text: 'picks the air quality the auto mode aims for: good, sensitive or very sensitive.', isSelect: true },
+  hasWickDryingSwitch: { label: 'Wick Drying', text: 'On dries the wick of the humidifier.', isSelect: false },
+  hasWickDryingSpeedSelect: { label: 'Wick Drying Speed', text: 'picks how fast the wick dries: slow, normal or fast, in 60, 45 or 30 minutes.', isSelect: true },
+};
+
+// The controls of the machine that Matter has no place for beside it, each a switch or a mode select if asked for.
+function moreControlsSection(draft: Draft, controls: AvailableControls): Child {
+  const keys = (Object.keys(moreControls) as (keyof typeof moreControls)[]).filter((key) => controls.settingControls.includes(key));
+  if (keys.length === 0) return null;
+  return h(
+    'section',
+    {},
+    h('h2', {}, 'More controls'),
+    h('p', { class: 'help' }, 'Controls of this machine that Matter has no place for. None of them turns a machine that is off on.'),
+    h(
+      'div',
+      { class: 'choices' },
+      ...keys.map((key) => {
+        const { label, text, isSelect } = moreControls[key];
+        const title = `Add a ${isSelect ? 'mode select' : 'switch'} for the ${label.toLowerCase().replace('uv', 'UV')}`;
+        const meta = isSelect ? `${placement(draft, label, true)}, and ${text} ${selectSupport}` : `${placement(draft, label, true)}. ${text}`;
+        return toggle(key, draft[key], title, meta, (isOn) => update(draft, { [key]: isOn }));
+      }),
+    ),
+  );
+}
+
 function cleanCycleSection(draft: Draft, controls: AvailableControls): Child {
-  if (!controls.hasWaterHardness) return null;
+  if (!controls.settingControls.includes('hasWaterHardnessSelect')) return null;
   return h(
     'section',
     {},
@@ -378,6 +408,7 @@ export function optionsScreen(): Child[] {
     heatSection(draft, controls),
     humidifySection(draft, controls),
     cleanCycleSection(draft, controls),
+    moreControlsSection(draft, controls),
     sensorSection(draft, controls),
     composedSection(draft),
     draft.isNew ? null : h('p', { class: 'help' }, 'Changing any of these rebuilds this machine in Matter. Your Matter app may take a moment to show the change.'),

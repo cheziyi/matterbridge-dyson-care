@@ -21,9 +21,9 @@
  * limitations under the License.
  */
 
-import type { EnvironmentalCareCapabilities, FindAndFollowMode, TiltAngle, WaterHardness } from 'dyson-control';
+import type { EnvironmentalCareCapabilities, FindAndFollowMode, TiltAngle } from 'dyson-control';
 
-import type { DeviceTypeOption, DysonDeviceConfig } from '../config.js';
+import type { DeviceTypeOption, DysonDeviceConfig, SettingControlKey } from '../config.js';
 import { getAvailableControls, type ReportedSensors } from '../controls.js';
 import { type FanPosition, fanSteps, type HumiditySelectValue, humidityTargets, type OscillationSelectValue } from '../mapping.js';
 
@@ -63,19 +63,19 @@ export interface AccessoryLayout {
   hasFindAndFollowSwitch: boolean;
   /** Off, follow and scan on the find and follow select, or none when the device has no find and follow select. */
   findAndFollowSelectValues: readonly FindAndFollowMode[];
-  /** The hardnesses the water hardness select picks from, or none when the device has no water hardness select. */
-  waterHardnessSelectValues: readonly WaterHardness[];
+  /** The setting controls the device has, each a switch or a mode select: see `settingControls.ts`. */
+  settingControls: readonly SettingControlKey[];
   /** Whether the air purifier shows the life left in its HEPA filter: the outer filter, or the one filter of a machine of the first generation. */
   hasHepaFilter: boolean;
   /** Whether the air purifier shows the life left in its activated carbon filter: the inner filter. */
   hasCarbonFilter: boolean;
-  /** Whether the night mode is the sleep wind of the fan control. */
-  hasSleepWind: boolean;
   hasNightModeSwitch: boolean;
   /** Whether the direction of the air is the airflow direction of the fan control. */
   hasAirflowDirection: boolean;
   hasAirflowDirectionSwitch: boolean;
   hasThermostat: boolean;
+  /** Whether the thermostat shows the unit the machine shows a temperature in, which a controller sets. */
+  hasTemperatureUnit: boolean;
   hasHeatSwitch: boolean;
   hasHumidifySwitch: boolean;
   hasAutoHumidifySwitch: boolean;
@@ -124,7 +124,8 @@ export function getAccessoryLayout(config: DysonDeviceConfig, capabilities: Envi
     hasFanAuto: controls.hasAutoMode && !hasAutoStep,
     hasFanAutoStep: hasAutoStep,
     hasFanAutoSwitch: controls.hasAutoMode && config.fanAutoControl === 'switch',
-    hasRocking: oscillation === 'native',
+    // A switch or a select is an endpoint of its own beside the rocking, as one for the auto mode is beside the fan mode Auto.
+    hasRocking: oscillation !== 'hidden',
     isTilt,
     // An oscillation select without angles to pick from would be a switch, so it is one.
     hasOscillationSwitch: oscillation === 'switch' || (oscillation === 'select' && !hasOscillationSelect && !hasTiltSelect),
@@ -133,14 +134,14 @@ export function getAccessoryLayout(config: DysonDeviceConfig, capabilities: Envi
     tiltSelectValues: hasTiltSelect ? controls.tiltAngles : [],
     hasFindAndFollowSwitch: findAndFollow === 'switch',
     findAndFollowSelectValues: findAndFollow === 'select' ? capabilities.findAndFollowModes : [],
-    waterHardnessSelectValues: controls.hasWaterHardness && config.hasWaterHardnessSelect ? capabilities.waterHardnesses : [],
+    settingControls: controls.settingControls.filter((key) => config[key]),
     hasHepaFilter: hasFilters && (capabilities.filters.includes('outerFilter') || capabilities.filters.includes('filter')),
     hasCarbonFilter: hasFilters && capabilities.filters.includes('innerFilter'),
-    hasSleepWind: config.nightModeControl === 'native',
     hasNightModeSwitch: config.nightModeControl === 'switch',
-    hasAirflowDirection: airflow === 'native',
+    hasAirflowDirection: airflow !== 'hidden',
     hasAirflowDirectionSwitch: airflow === 'switch',
     hasThermostat: heat === 'thermostat',
+    hasTemperatureUnit: heat === 'thermostat' && capabilities.temperatureUnits.length > 1,
     hasHeatSwitch: heat === 'switch',
     hasHumidifySwitch: humidification === 'switches',
     hasAutoHumidifySwitch: humidification === 'switches' && controls.hasAutoHumidification,

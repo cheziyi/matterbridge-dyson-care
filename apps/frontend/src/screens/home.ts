@@ -6,12 +6,25 @@
  */
 
 import { loadState, removeDevice, search, signOut, startQueue, startSignIn } from '../actions.js';
-import type { MachineReport, StoredDevice } from '../api.js';
+import type { MachineReport, SettingControlKey, StoredDevice } from '../api.js';
 import { button, notice } from '../components.js';
 import { type Child, h } from '../dom.js';
-import { draftFromStored } from '../exposure.js';
+import { draftFromStored, settingControlKeys } from '../exposure.js';
 import { render } from '../render.js';
 import { view } from '../state.js';
+
+// The setting controls, as the summary of a device names them.
+const settingNames: Readonly<Record<SettingControlKey, string>> = {
+  hasChildLockSwitch: 'child lock',
+  hasUvLightSwitch: 'UV light',
+  hasIoniserSwitch: 'ioniser',
+  hasJetFocusSwitch: 'jet focus',
+  hasIndirectAirflowSwitch: 'indirect airflow',
+  hasAirQualityTargetSelect: 'air quality target',
+  hasWickDryingSwitch: 'wick drying',
+  hasWickDryingSpeedSelect: 'wick drying speed',
+  hasWaterHardnessSelect: 'water hardness',
+};
 
 const placeNames = { native: 'on the fan', switch: 'as a switch', select: 'as a mode select', hidden: '' } as const;
 
@@ -20,7 +33,7 @@ function describeExposure(device: StoredDevice): string {
   // What the machine cannot do is left out, whatever is stored for it. A machine the plugin cannot read now is described as stored.
   const controls = device.controls;
   const has = (
-    key: 'hasAutoMode' | 'hasOscillation' | 'hasFindAndFollow' | 'hasAirflowDirection' | 'hasHeat' | 'hasHumidification' | 'hasWaterHardness' | 'hasFilterLife' | 'hasAirQualitySensor',
+    key: 'hasAutoMode' | 'hasOscillation' | 'hasFindAndFollow' | 'hasAirflowDirection' | 'hasHeat' | 'hasHumidification' | 'hasFilterLife' | 'hasAirQualitySensor',
   ): boolean => controls === undefined || controls[key];
   const isTilt = controls !== undefined && controls.tiltAngles.length > 0;
   const kind = device.deviceType === 'airPurifier' ? 'an air purifier' : 'a fan';
@@ -38,7 +51,8 @@ function describeExposure(device: StoredDevice): string {
   for (const [place, names] of byPlace) parts.push(`${names.join(', ')} ${place}`);
   if (has('hasHeat') && device.heatControl !== 'hidden') parts.push(device.heatControl === 'thermostat' ? 'a thermostat' : 'a heat switch');
   if (has('hasHumidification') && device.humidificationControl !== 'hidden') parts.push(device.humidificationControl === 'select' ? 'a target humidity select' : 'humidify switches');
-  if (has('hasWaterHardness') && device.hasWaterHardnessSelect) parts.push('a water hardness select');
+  const settings = settingControlKeys.filter((key) => device[key] && (controls === undefined || controls.settingControls.includes(key))).map((key) => settingNames[key]);
+  if (settings.length > 0) parts.push(`a control for the ${settings.join(', ')}`);
   if (has('hasFilterLife') && device.deviceType === 'airPurifier') parts.push('the filter life');
   // A sensor shows only once the machine gives its reading.
   const { reportedSensors: reported } = device;
@@ -73,7 +87,10 @@ function describeCleanCycle(cycle: NonNullable<MachineReport['cleanCycle']>): st
 function describeReport(report: MachineReport): string {
   const filters = report.filters.map(({ filter, lifeInPercent }) => `${filterNames[filter]} ${lifeInPercent} %`).join(', ');
   const cleanCycle = report.cleanCycle === undefined ? '' : describeCleanCycle(report.cleanCycle);
-  return [filters, cleanCycle]
+  const minutes = report.wickDrying?.remainingTimeInMinutes;
+  let wickDrying = '';
+  if (report.wickDrying !== undefined) wickDrying = minutes === null || minutes === undefined ? 'Drying its wick' : `Drying its wick, ${minutes} min left`;
+  return [filters, cleanCycle, wickDrying]
     .filter((text) => text !== '')
     .map((text) => `${text}.`)
     .join(' ');

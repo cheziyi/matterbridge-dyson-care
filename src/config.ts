@@ -45,21 +45,22 @@ export const FAN_AUTO_CONTROLS = ['native', 'switch', 'firstStep', 'lastStep'] a
 export type FanAutoControlOption = (typeof FAN_AUTO_CONTROLS)[number];
 
 /**
- * How the oscillation is exposed to Matter: natively, as the left and right rocking of the fan control, as an on/off
- * switch, as a mode select of the angles the machine sweeps, or not at all. The oscillation of a machine that tilts is
- * its breeze, which rocks it up and down, and its select picks the angle it tilts to.
+ * How the oscillation is exposed to Matter: natively, as the left and right rocking of the fan control, alone or with an
+ * on/off switch or a mode select of the angles the machine sweeps beside it. The switch and the select are for apps
+ * that show no rocking, and an app that does not show it leaves it out, so it is never hidden. The oscillation of a
+ * machine that tilts is its breeze, which rocks it up and down, and its select picks the angle it tilts to.
  */
-export const OSCILLATION_CONTROLS = ['native', 'switch', 'select', 'hidden'] as const;
+export const OSCILLATION_CONTROLS = ['native', 'switch', 'select'] as const;
 
 export type OscillationControlOption = (typeof OSCILLATION_CONTROLS)[number];
 
-/** How the night mode is exposed to Matter: natively, as the sleep wind of the fan control, as an on/off switch, or not at all. */
-export const NIGHT_MODE_CONTROLS = ['native', 'switch', 'hidden'] as const;
+/** How the night mode is exposed to Matter: natively, as the sleep wind of the fan control, alone or with an on/off switch beside it for apps that show no sleep wind. */
+export const NIGHT_MODE_CONTROLS = ['native', 'switch'] as const;
 
 export type NightModeControlOption = (typeof NIGHT_MODE_CONTROLS)[number];
 
-/** How the direction the machine blows its air is exposed to Matter: natively, as the airflow direction of the fan control, as an on/off switch, or not at all. */
-export const AIRFLOW_DIRECTION_CONTROLS = ['native', 'switch', 'hidden'] as const;
+/** How the direction the machine blows its air is exposed to Matter: natively, as the airflow direction of the fan control, alone or with an on/off switch beside it for apps that show no airflow direction. */
+export const AIRFLOW_DIRECTION_CONTROLS = ['native', 'switch'] as const;
 
 export type AirflowDirectionControlOption = (typeof AIRFLOW_DIRECTION_CONTROLS)[number];
 
@@ -75,6 +76,24 @@ export type HeatControlOption = (typeof HEAT_CONTROLS)[number];
 export const HUMIDIFICATION_CONTROLS = ['switches', 'select', 'hidden'] as const;
 
 export type HumidificationControlOption = (typeof HUMIDIFICATION_CONTROLS)[number];
+
+/**
+ * The settings that each add one switch or one mode select for a control of the machine that has no place in Matter
+ * beside it: see `settingControls.ts`. A machine without the control has none, whatever is stored.
+ */
+export const SETTING_CONTROLS = [
+  'hasChildLockSwitch',
+  'hasUvLightSwitch',
+  'hasIoniserSwitch',
+  'hasJetFocusSwitch',
+  'hasIndirectAirflowSwitch',
+  'hasAirQualityTargetSelect',
+  'hasWickDryingSwitch',
+  'hasWickDryingSpeedSelect',
+  'hasWaterHardnessSelect',
+] as const;
+
+export type SettingControlKey = (typeof SETTING_CONTROLS)[number];
 
 /** How the find and follow of a machine that turns to the people it finds is exposed to Matter: as an on/off switch, as a mode select of off, follow and scan, or not at all. */
 export const FIND_AND_FOLLOW_CONTROLS = ['switch', 'select', 'hidden'] as const;
@@ -100,6 +119,21 @@ export interface DysonDeviceExposure {
   heatControl: HeatControlOption;
   humidificationControl: HumidificationControlOption;
   findAndFollowControl: FindAndFollowControlOption;
+  /** Whether the buttons of the machine get a switch that locks them. */
+  hasChildLockSwitch: boolean;
+  /** Whether the UV light that cleans the air gets a switch. */
+  hasUvLightSwitch: boolean;
+  hasIoniserSwitch: boolean;
+  /** Whether the jet focus of a machine that focuses its air or diffuses it gets a switch: on focuses it. */
+  hasJetFocusSwitch: boolean;
+  /** Whether the nozzle of a machine that tilts it to 45° gets a switch: on blows the air indirectly. */
+  hasIndirectAirflowSwitch: boolean;
+  /** Whether the air quality the auto mode of a machine of the first generation aims for gets a mode select. */
+  hasAirQualityTargetSelect: boolean;
+  /** Whether the drying of the wick of a humidifier gets a switch. */
+  hasWickDryingSwitch: boolean;
+  /** Whether the speed the wick dries at gets a mode select. */
+  hasWickDryingSpeedSelect: boolean;
   /** Whether the water hardness of a humidifier that runs a clean cycle gets a mode select, which sets how often it asks for one. */
   hasWaterHardnessSelect: boolean;
   /** Whether the continuous monitoring, the measuring of the air while the machine is off, gets an on/off switch. */
@@ -172,7 +206,7 @@ export const EXPOSURE_SETTINGS = [
   'heatControl',
   'humidificationControl',
   'findAndFollowControl',
-  'hasWaterHardnessSelect',
+  ...SETTING_CONTROLS,
   'hasContinuousMonitoringSwitch',
   'hasAirQualitySensor',
   'hasTemperatureSensor',
@@ -191,6 +225,14 @@ export const defaultExposure: Readonly<DysonDeviceExposure> = {
   heatControl: 'thermostat',
   humidificationControl: 'select',
   findAndFollowControl: 'hidden',
+  hasChildLockSwitch: false,
+  hasUvLightSwitch: false,
+  hasIoniserSwitch: false,
+  hasJetFocusSwitch: false,
+  hasIndirectAirflowSwitch: false,
+  hasAirQualityTargetSelect: false,
+  hasWickDryingSwitch: false,
+  hasWickDryingSpeedSelect: false,
   hasWaterHardnessSelect: false,
   hasContinuousMonitoringSwitch: false,
   hasAirQualitySensor: true,
@@ -333,6 +375,14 @@ export function parseDeviceConfig(value: unknown, report?: (message: string) => 
     heatControl: pick('heatControl', HEAT_CONTROLS, fallback.heatControl),
     humidificationControl: pick('humidificationControl', HUMIDIFICATION_CONTROLS, fallback.humidificationControl),
     findAndFollowControl: pick('findAndFollowControl', FIND_AND_FOLLOW_CONTROLS, fallback.findAndFollowControl),
+    hasChildLockSwitch: flag('hasChildLockSwitch', fallback.hasChildLockSwitch),
+    hasUvLightSwitch: flag('hasUvLightSwitch', fallback.hasUvLightSwitch),
+    hasIoniserSwitch: flag('hasIoniserSwitch', fallback.hasIoniserSwitch),
+    hasJetFocusSwitch: flag('hasJetFocusSwitch', fallback.hasJetFocusSwitch),
+    hasIndirectAirflowSwitch: flag('hasIndirectAirflowSwitch', fallback.hasIndirectAirflowSwitch),
+    hasAirQualityTargetSelect: flag('hasAirQualityTargetSelect', fallback.hasAirQualityTargetSelect),
+    hasWickDryingSwitch: flag('hasWickDryingSwitch', fallback.hasWickDryingSwitch),
+    hasWickDryingSpeedSelect: flag('hasWickDryingSpeedSelect', fallback.hasWickDryingSpeedSelect),
     hasWaterHardnessSelect: flag('hasWaterHardnessSelect', fallback.hasWaterHardnessSelect),
     hasContinuousMonitoringSwitch: flag('hasContinuousMonitoringSwitch', fallback.hasContinuousMonitoringSwitch),
     hasAirQualitySensor: flag('hasAirQualitySensor', fallback.hasAirQualitySensor),

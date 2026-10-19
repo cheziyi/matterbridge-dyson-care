@@ -109,6 +109,34 @@ describe('PendingCommand', () => {
     expect(pending.take({ ...machine, state: { ...tilt, fanPower: false } }, () => undefined)).toEqual({ tiltAngleInDegrees: 0, fanPower: true });
   });
 
+  it('should turn a machine that is off on for its fan and what runs alone, and keep it off for every other control', () => {
+    const pending = new PendingCommand();
+    const off = snapshot({ state: { ...createFakeClient(hotCool).state, fanPower: false, heatMode: 'off', humidificationMode: 'off' } });
+    pending.requestControl({ nightMode: true });
+    expect(pending.take(off, () => undefined)).toEqual({ nightMode: true, fanPower: false });
+    pending.requestFan();
+    expect(pending.take(off, () => 3)).toEqual({ fanSpeed: 3 });
+    pending.requestFanAuto(true);
+    expect(pending.take(off, () => undefined)).toEqual({ autoMode: true });
+    pending.requestControl({ findAndFollowMode: 'on' });
+    expect(pending.take(off, () => undefined)).toEqual({ findAndFollowMode: 'on' });
+    pending.requestControl({ findAndFollowMode: 'off' });
+    expect(pending.take(off, () => undefined)).toEqual({ findAndFollowMode: 'off', fanPower: false });
+    // A setpoint keeps the heating off, and the auto humidifying the humidifying.
+    pending.requestHeatTarget(24);
+    expect(pending.take(off, () => undefined)).toEqual({ targetTemperatureInC: 24, heatMode: 'off', fanPower: false });
+    pending.requestControl({ autoHumidification: true });
+    expect(pending.take(off, () => undefined)).toEqual({ autoHumidification: true, humidificationMode: 'off', fanPower: false });
+    // A machine never read has nothing to keep.
+    pending.requestHeatTarget(24);
+    pending.requestControl({ autoHumidification: false });
+    expect(pending.take(snapshot({ state: undefined }), () => undefined)).toEqual({ targetTemperatureInC: 24, autoHumidification: false });
+    // A machine that reports no heat mode or humidifying mode has none to keep.
+    pending.requestHeatTarget(24);
+    pending.requestControl({ autoHumidification: false });
+    expect(pending.take(snapshot(), () => undefined)).toEqual({ targetTemperatureInC: 24, autoHumidification: false });
+  });
+
   it('should humidify to a target, and to the auto mode only on a machine that has one', () => {
     const pending = new PendingCommand();
     pending.requestHumidity(40);

@@ -19,7 +19,7 @@ describe('controls', () => {
       hasHeat: false,
       hasHumidification: false,
       hasAutoHumidification: false,
-      hasWaterHardness: false,
+      settingControls: [],
       hasFilterLife: true,
       hasContinuousMonitoring: true,
       hasAirQualitySensor: true,
@@ -31,7 +31,7 @@ describe('controls', () => {
     expect(getAvailableControls(capabilitiesOf(humidifyCool))).toMatchObject({
       hasHumidification: true,
       hasAutoHumidification: true,
-      hasWaterHardness: true,
+      settingControls: ['hasWaterHardnessSelect'],
       oscillationAngles: [45, 90, 'breeze'],
     });
   });
@@ -75,7 +75,6 @@ describe('controls', () => {
     expect(fitToCapabilities(device, capabilitiesOf(coolFan))).toEqual({
       ...device,
       fanAutoControl: 'native',
-      airflowDirectionControl: 'hidden',
       heatControl: 'hidden',
       humidificationControl: 'hidden',
       findAndFollowControl: 'hidden',
@@ -96,12 +95,12 @@ describe('controls', () => {
     expect(fitToCapabilities(createDeviceConfig(bigQuiet, { oscillationControl: 'select' }), capabilitiesOf(bigQuiet)).oscillationControl).toBe('select');
   });
 
-  it('should turn an oscillation select without angles into a switch, and hide one the machine lacks', () => {
+  it('should turn an oscillation select without angles into a switch, and keep the choice for one the machine lacks', () => {
     const device = createDeviceConfig(purifierCool, { oscillationControl: 'select' });
     expect(
       fitToCapabilities(device, { ...capabilitiesOf(purifierCool), oscillation: 'basic', oscillationAngles: null, oscillationAngleWidthsInDegrees: [] }).oscillationControl,
     ).toBe('switch');
-    expect(fitToCapabilities(device, { ...capabilitiesOf(purifierCool), oscillation: 'none' }).oscillationControl).toBe('hidden');
+    expect(fitToCapabilities(device, { ...capabilitiesOf(purifierCool), oscillation: 'none' }).oscillationControl).toBe('select');
     expect(fitToCapabilities(device, capabilitiesOf(purifierCool)).oscillationControl).toBe('select');
   });
 
