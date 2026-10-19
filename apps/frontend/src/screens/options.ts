@@ -63,10 +63,13 @@ function radioSection(title: string, help: string, ...choices: Child[]): HTMLEle
   return h('section', {}, h('h2', { id }, title), help === '' ? null : h('p', { class: 'help' }, help), h('div', { 'class': 'choices', 'role': 'radiogroup', 'aria-labelledby': id }, ...choices));
 }
 
-// Written to the draft when the field is left, so that the page does not redraw under the typing.
+// Written to the draft as it is typed, without a redraw: leaving the field for the Save button would otherwise redraw
+// the page under the click, which then reaches no button. The other mentions of the name follow at the next redraw.
 function nameSection(draft: Draft): HTMLElement {
   const input = h('input', { type: 'text', id: 'device-name', value: draft.name, maxLength: 32, autocomplete: 'off', spellcheck: false });
-  input.addEventListener('change', () => update(draft, { name: input.value.trim() }));
+  input.addEventListener('input', () => {
+    draft.name = input.value.trim();
+  });
   const room = draft.machine.name;
   const roomText = room === undefined ? 'It has no room name in the Dyson app.' : `Its room name in the Dyson app is "${room}", which other machines in that room share.`;
   return h(
