@@ -168,7 +168,7 @@ function tiltSection(draft: Draft): HTMLElement {
   return radioSection(
     'Tilt',
     'The machine tilts to 0°, 25° or 50°, or breezes: it tilts up and down. Tilting turns the machine on in the Dyson app, but not from Matter: a machine that is off stays off.',
-    radio('oscillation', 'native', draft.oscillationControl, 'On the fan', `The up and down rocking of the fan control, as Matter has it: on breezes, off goes back to the angle it was tilted to. ${fanFeatureSupport}`, pick),
+    radio('oscillation', 'native', draft.oscillationControl, 'Native rocking', `The up and down rocking of the fan control, as Matter has it: on breezes, off goes back to the angle it was tilted to. ${fanFeatureSupport}`, pick),
     radio('oscillation', 'switch', draft.oscillationControl, 'A switch', `${placement(draft, 'Oscillation', true)}. On breezes, off goes back to the angle it was tilted to. It takes the place of the rocking of the fan control, which Apple Home mishandles.`, pick),
     radio('oscillation', 'select', draft.oscillationControl, 'A mode select', `${placement(draft, 'Tilt', true)}, and picks 0°, 25°, 50° or breeze. It takes the place of the rocking of the fan control, which Apple Home mishandles. ${selectSupport}`, pick),
   );
@@ -183,7 +183,7 @@ function oscillationSection(draft: Draft, controls: AvailableControls): Child {
   return radioSection(
     'Oscillation',
     '',
-    radio('oscillation', 'native', current, 'On the fan', `The left and right rocking of the fan control, as Matter has it. ${fanFeatureSupport}`, pick),
+    radio('oscillation', 'native', current, 'Native rocking', `The left and right rocking of the fan control, as Matter has it. ${fanFeatureSupport}`, pick),
     radio('oscillation', 'switch', current, 'A switch', `${placement(draft, 'Oscillation', true)}. On sweeps the angle set in the Dyson app. It takes the place of the rocking of the fan control, which Apple Home mishandles.`, pick),
     hasSelect ? radio('oscillation', 'select', current, 'A mode select', `${placement(draft, 'Oscillation', true)}, and picks off or one of ${listAngles(controls.oscillationAngles)}. It takes the place of the rocking of the fan control, which Apple Home mishandles. ${selectSupport}`, pick) : null,
   );
@@ -194,7 +194,7 @@ function nightModeSection(draft: Draft): HTMLElement {
   return radioSection(
     'Night mode',
     'In its night mode the machine runs quieter and dims its display.',
-    radio('night-mode', 'native', draft.nightModeControl, 'On the fan only', `The sleep wind of the fan control, as Matter has it. ${fanFeatureSupport}`, pick),
+    radio('night-mode', 'native', draft.nightModeControl, 'Native sleep wind only', `The sleep wind of the fan control, as Matter has it. ${fanFeatureSupport}`, pick),
     radio('night-mode', 'switch', draft.nightModeControl, 'A switch', `${placement(draft, 'Night Mode', true)}. The night mode stays the sleep wind of the fan control as well.`, pick),
   );
 }
@@ -205,7 +205,7 @@ function airflowSection(draft: Draft, controls: AvailableControls): Child {
   return radioSection(
     'Airflow direction',
     'The machine blows its air out of the front, or out of the back to circulate the air without cooling you.',
-    radio('airflow', 'native', draft.airflowDirectionControl, 'On the fan only', `The airflow direction of the fan control, as Matter has it: forward is the front. ${fanFeatureSupport}`, pick),
+    radio('airflow', 'native', draft.airflowDirectionControl, 'Native airflow direction only', `The airflow direction of the fan control, as Matter has it: forward is the front. ${fanFeatureSupport}`, pick),
     radio('airflow', 'switch', draft.airflowDirectionControl, 'A switch', `${placement(draft, 'Front Airflow', true)}. On blows the air out of the front, off out of the back. The airflow direction of the fan control stays as well.`, pick),
   );
 }

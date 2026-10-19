@@ -148,11 +148,11 @@ A step takes the place of the Auto fan mode, because in that mode Matter holds n
 
 ### Oscillation
 
-| Option        | In Matter                                                                                                                                                                            |
-| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| On the fan    | The left and right rocking of the fan control, as Matter has it. Not every app shows it                                                                                              |
-| A switch      | A switch named `<name> Oscillation`, in place of the rocking. On sweeps the angle set in the Dyson app                                                                               |
-| A mode select | A mode select named `<name> Oscillation`, in place of the rocking, with Off and the angles the machine sweeps: see below. Few Matter apps show it: see [Mode selects](#mode-selects) |
+| Option         | In Matter                                                                                                                                                                            |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Native rocking | The left and right rocking of the fan control, as Matter has it. Not every app shows it                                                                                              |
+| A switch       | A switch named `<name> Oscillation`, in place of the rocking. On sweeps the angle set in the Dyson app                                                                               |
+| A mode select  | A mode select named `<name> Oscillation`, in place of the rocking, with Off and the angles the machine sweeps: see below. Few Matter apps show it: see [Mode selects](#mode-selects) |
 
 The mode select offers what the machine takes:
 
@@ -170,20 +170,20 @@ A machine that pauses its oscillation while it stands by takes it on and off in 
 
 The Big+Quiet tilts in place of oscillating: to 0°, 25° or 50°, or back and forth in its breeze. Its oscillation options are for the tilt:
 
-| Option        | In Matter                                                                                                                                       |
-| ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| On the fan    | The up and down rocking of the fan control. On breezes, and off tilts the machine back to the angle it was at, or to 0°. Not every app shows it |
-| A switch      | A switch named `<name> Oscillation`, in place of the rocking, which breezes the same way                                                        |
-| A mode select | A mode select named `<name> Tilt`, in place of the rocking, with 0°, 25°, 50° and Breeze                                                        |
+| Option         | In Matter                                                                                                                                       |
+| -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| Native rocking | The up and down rocking of the fan control. On breezes, and off tilts the machine back to the angle it was at, or to 0°. Not every app shows it |
+| A switch       | A switch named `<name> Oscillation`, in place of the rocking, which breezes the same way                                                        |
+| A mode select  | A mode select named `<name> Tilt`, in place of the rocking, with 0°, 25°, 50° and Breeze                                                        |
 
 A tilt turns the machine on when the Dyson app sets it. From Matter it leaves a machine that is off as it is: see [Power](#power).
 
 ### Night mode and airflow direction
 
-| Option     | Night mode                                                                        | Airflow direction                                                                                                                                   |
-| ---------- | --------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| On the fan | The sleep wind of the fan control alone, as Matter has it. Not every app shows it | The airflow direction of the fan control alone: forward is the front. Not every app shows it                                                        |
-| A switch   | A switch named `<name> Night Mode`, and the sleep wind of the fan control as well | A switch named `<name> Front Airflow`, and the airflow direction of the fan control as well. On blows the air out of the front, off out of the back |
+| Option      | Night mode                                                                        | Airflow direction                                                                                                                                   |
+| ----------- | --------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Native only | The sleep wind of the fan control alone, as Matter has it. Not every app shows it | The airflow direction of the fan control alone: forward is the front. Not every app shows it                                                        |
+| A switch    | A switch named `<name> Night Mode`, and the sleep wind of the fan control as well | A switch named `<name> Front Airflow`, and the airflow direction of the fan control as well. On blows the air out of the front, off out of the back |
 
 The airflow direction is offered on a machine that blows its air to the front or the back.
 
@@ -286,11 +286,11 @@ Dyson rates the air from good to severe on one index for every pollutant, and Ma
 
 In the Options step, a preset fills in every choice above for what the machine can do. You can change any of them afterwards. A new machine starts with the Apple Home preset, and one already set up keeps its own choices.
 
-| Preset              | Fan speed  | Auto mode  | Oscillation, night mode | Airflow direction | Heating    | Humidifying   | Continuous monitoring | Sensors | Parts of the main device |
-| ------------------- | ---------- | ---------- | ----------------------- | ----------------- | ---------- | ------------- | --------------------- | ------- | ------------------------ |
-| Apple Home          | Percentage | On the fan | Switches                | On the fan        | Thermostat | Switches      | No switch             | All     | No                       |
-| Google Home         | Steps      | A switch   | Switches                | On the fan        | Thermostat | Switches      | No switch             | All     | No                       |
-| Full Matter support | Steps      | On the fan | On the fan              | On the fan        | Thermostat | A mode select | A switch              | All     | Yes                      |
+| Preset              | Fan speed  | Auto mode | Oscillation, night mode | Airflow direction | Heating    | Humidifying   | Continuous monitoring | Sensors | Parts of the main device |
+| ------------------- | ---------- | --------- | ----------------------- | ----------------- | ---------- | ------------- | --------------------- | ------- | ------------------------ |
+| Apple Home          | Percentage | Native    | Switches                | Native            | Thermostat | Switches      | No switch             | All     | No                       |
+| Google Home         | Steps      | A switch  | Switches                | Native            | Thermostat | Switches      | No switch             | All     | No                       |
+| Full Matter support | Steps      | Native    | Native                  | Native            | Thermostat | A mode select | A switch              | All     | Yes                      |
 
 Find and follow is a switch in the Apple Home and Google Home presets and a mode select in the Full Matter support preset. Every preset adds the switches for the jet focus, the indirect airflow, the UV light and the ioniser, and the Full Matter support preset alone the controls of what is set once rather than used every day: the child lock, the air quality target, the wick drying and the water hardness.
 
