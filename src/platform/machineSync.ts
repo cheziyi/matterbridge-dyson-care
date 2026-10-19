@@ -30,7 +30,7 @@ import { type DysonDeviceConfig, hasSameMachine } from '../config.js';
  * Work out what the machine list of the account changes about a stored device
  *
  * A device is matched by the serial number of its machine, and takes the variant, the firmware and the room name the
- * cloud reports for it now. It keeps its own name: the room name is that of the Dyson app, which several machines can
+ * cloud reports for it now. It keeps its own name: the room name is that of the MyDyson app, which several machines can
  * share.
  *
  * Edge cases:

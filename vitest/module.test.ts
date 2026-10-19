@@ -288,7 +288,7 @@ describe('DysonPlatform', () => {
   it('should explain and log a sign in the cloud refuses', async () => {
     vi.mocked(requestLoginCode).mockRejectedValueOnce(new DysonError('Dyson request to /v3/userregistration/email/auth failed', 401));
     await expect(platform.requestLoginCode('someone@example.com', 'GB')).rejects.toThrow(
-      'Dyson refused the address: check that it is the email address you sign in to the Dyson app with. An account that signs in with a mobile number is not supported (HTTP 401)',
+      'Dyson refused the address: check that it is the email address you sign in to the MyDyson app with. An account that signs in with a mobile number is not supported (HTTP 401)',
     );
     expect(log.warn).toHaveBeenCalledWith(expect.stringMatching(/^Dyson did not email a login code to someone@example.com: Dyson refused the address.*\(HTTP 401\)$/));
     vi.mocked(login).mockRejectedValueOnce(new DysonError('Dyson request to /v3/userregistration/email/verify failed', 400));
@@ -348,7 +348,7 @@ describe('DysonPlatform', () => {
     await settle();
   });
 
-  it('should keep the name of a device when the room name of its machine changes in the Dyson app', async () => {
+  it('should keep the name of a device when the room name of its machine changes in the MyDyson app', async () => {
     const device = platform.getDeviceByName('Living Room');
     listed = [{ ...purifierCool, name: 'Bedroom' }, hotCool];
     await platform.syncMachines();

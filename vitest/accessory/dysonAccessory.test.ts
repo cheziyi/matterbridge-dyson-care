@@ -812,7 +812,7 @@ describe('DysonAccessory', () => {
       await accessory.dispose();
     });
 
-    it('should breeze with a switch, and tilt to the angle its select picks, leaving a machine that is off off', async () => {
+    it('should breeze with a switch, and tilt to the angle its select picks', async () => {
       const switched = { ...bigQuiet, serialNumber: 'NK6-EU-MHA0052A' };
       const switchClient = createFakeClient(switched, tilted);
       const withSwitch = new DysonAccessory({
@@ -849,7 +849,7 @@ describe('DysonAccessory', () => {
       expect(withSelect.tiltSelect?.getAttribute(ModeSelect, 'currentMode')).toBe(1);
       await writeAsController(withSelect.tiltSelect, 'ModeSelect', 'currentMode', 3);
       await withSelect.flushCommands();
-      expect(selectClient.setState).toHaveBeenLastCalledWith({ tiltAngleInDegrees: 'breeze', fanPower: false });
+      expect(selectClient.setState).toHaveBeenLastCalledWith({ tiltAngleInDegrees: 'breeze' });
       expect(withSelect.tiltSelect?.getAttribute(ModeSelect, 'currentMode')).toBe(3);
       await withSelect.dispose();
     });
@@ -1028,7 +1028,7 @@ describe('DysonAccessory', () => {
   describe('machines with more controls', () => {
     const bare = { hasAirQualitySensor: false, hasTemperatureSensor: false, hasHumiditySensor: false } as const;
 
-    it('should show the switches of the child lock, the UV light and the ioniser, and keep a machine that is off off', async () => {
+    it('should show the switches of the child lock, the UV light and the ioniser', async () => {
       const machine = { serialNumber: 'NK6-EU-MHA0091A', type: '997', model: 'EAST', category: 'environmentalCare' as const, name: 'Loft', productName: 'Purifier Big+Quiet' };
       const client = createFakeClient(machine, { fanPower: false, childLockMode: false, uvMode: true, ionisationMode: null });
       const config = createDeviceConfig(machine, { ...bare, hasChildLockSwitch: true, hasUvLightSwitch: true, hasIoniserSwitch: true });
@@ -1043,12 +1043,11 @@ describe('DysonAccessory', () => {
       expect(accessory.settingEndpoints.get('hasIoniserSwitch')?.getAttribute(OnOff, 'onOff')).toBe(false);
       await writeAsController(childLock, 'OnOff', 'onOff', true);
       await accessory.flushCommands();
-      expect(client.setState).toHaveBeenLastCalledWith({ childLockMode: true, fanPower: false });
+      expect(client.setState).toHaveBeenLastCalledWith({ childLockMode: true });
       expect(childLock?.getAttribute(OnOff, 'onOff')).toBe(true);
-      expect(accessory.endpoint.getAttribute(OnOff, 'onOff')).toBe(false);
       await writeAsController(childLock, 'OnOff', 'onOff', false);
       await accessory.flushCommands();
-      expect(client.setState).toHaveBeenLastCalledWith({ childLockMode: false, fanPower: false });
+      expect(client.setState).toHaveBeenLastCalledWith({ childLockMode: false });
       await accessory.dispose();
     });
 

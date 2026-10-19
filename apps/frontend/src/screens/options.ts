@@ -73,12 +73,12 @@ function nameSection(draft: Draft): HTMLElement {
     if (!(event as InputEvent).isComposing) render();
   });
   const room = draft.machine.name;
-  const roomText = room === undefined ? 'It has no room name in the Dyson app.' : `Its room name in the Dyson app is "${room}", which other machines in that room share.`;
+  const roomText = room === undefined ? 'It has no room name in the MyDyson app.' : `Its room name in the MyDyson app is "${room}", which other machines in that room share.`;
   return h(
     'section',
     {},
     h('h2', {}, h('label', { for: 'device-name' }, 'Name in Matter')),
-    h('p', { class: 'help' }, `${roomText} The name here is what your Matter apps show, up to 32 characters, and no two machines of this plugin share one. A new room name in the Dyson app does not change it.`),
+    h('p', { class: 'help' }, `${roomText} The name here is what your Matter apps show, up to 32 characters, and no two machines of this plugin share one. A new room name in the MyDyson app does not change it.`),
     h('div', { class: 'inline-form' }, input),
   );
 }
@@ -167,7 +167,7 @@ function tiltSection(draft: Draft): HTMLElement {
   const pick = (oscillationControl: Exposure['oscillationControl']): void => update(draft, { oscillationControl });
   return radioSection(
     'Tilt',
-    'The machine tilts to 0°, 25° or 50°, or breezes: it tilts up and down. Tilting turns the machine on in the Dyson app, but not from Matter: a machine that is off stays off.',
+    'The machine tilts to 0°, 25° or 50°, or breezes: it tilts up and down. Tilting turns a machine that is off on, as in the MyDyson app.',
     radio('oscillation', 'native', draft.oscillationControl, 'Native rocking', `The up and down rocking of the fan control, as Matter has it: on breezes, off goes back to the angle it was tilted to. ${fanFeatureSupport}`, pick),
     radio('oscillation', 'switch', draft.oscillationControl, 'A switch', `${placement(draft, 'Oscillation', true)}. On breezes, off goes back to the angle it was tilted to. It takes the place of the rocking of the fan control, which Apple Home mishandles.`, pick),
     radio('oscillation', 'select', draft.oscillationControl, 'A mode select', `${placement(draft, 'Tilt', true)}, and picks 0°, 25°, 50° or breeze. It takes the place of the rocking of the fan control, which Apple Home mishandles. ${selectSupport}`, pick),
@@ -184,7 +184,7 @@ function oscillationSection(draft: Draft, controls: AvailableControls): Child {
     'Oscillation',
     '',
     radio('oscillation', 'native', current, 'Native rocking', `The left and right rocking of the fan control, as Matter has it. ${fanFeatureSupport}`, pick),
-    radio('oscillation', 'switch', current, 'A switch', `${placement(draft, 'Oscillation', true)}. On sweeps the angle set in the Dyson app. It takes the place of the rocking of the fan control, which Apple Home mishandles.`, pick),
+    radio('oscillation', 'switch', current, 'A switch', `${placement(draft, 'Oscillation', true)}. On sweeps the angle set in the MyDyson app. It takes the place of the rocking of the fan control, which Apple Home mishandles.`, pick),
     hasSelect ? radio('oscillation', 'select', current, 'A mode select', `${placement(draft, 'Oscillation', true)}, and picks off or one of ${listAngles(controls.oscillationAngles)}. It takes the place of the rocking of the fan control, which Apple Home mishandles. ${selectSupport}`, pick) : null,
   );
 }
@@ -218,7 +218,7 @@ function findAndFollowSection(draft: Draft, controls: AvailableControls): Child 
     'The machine finds the people in the room and turns to follow them. It runs only while the machine is on, so turning it on turns the machine on.',
     radio('find-and-follow', 'switch', draft.findAndFollowControl, 'A switch', `${placement(draft, 'Find and Follow', true)}. On follows the people the machine finds.`, pick),
     radio('find-and-follow', 'select', draft.findAndFollowControl, 'A mode select', `${placement(draft, 'Find and Follow', true)}, and picks off, follow, or scan to look for people. ${selectSupport}`, pick),
-    radio('find-and-follow', 'hidden', draft.findAndFollowControl, 'Not shown in Matter', 'Find and follow stays as the Dyson app sets it.', pick),
+    radio('find-and-follow', 'hidden', draft.findAndFollowControl, 'Not shown in Matter', 'Find and follow stays as the MyDyson app sets it.', pick),
   );
 }
 
@@ -229,8 +229,8 @@ function heatSection(draft: Draft, controls: AvailableControls): Child {
     'Heating',
     'The machine heats only while it is on, so turning the heating on turns the machine on.',
     radio('heat', 'thermostat', draft.heatControl, 'A thermostat', `${placement(draft, 'Heater', false)}: it heats or is off, with a setpoint from 1 to 37 °C. Off leaves the fan running.`, pick),
-    radio('heat', 'switch', draft.heatControl, 'A switch', `${placement(draft, 'Heat', true)}. It heats to the setpoint set in the Dyson app.`, pick),
-    radio('heat', 'hidden', draft.heatControl, 'Not shown in Matter', 'The heating stays as the Dyson app sets it.', pick),
+    radio('heat', 'switch', draft.heatControl, 'A switch', `${placement(draft, 'Heat', true)}. It heats to the setpoint set in the MyDyson app.`, pick),
+    radio('heat', 'hidden', draft.heatControl, 'Not shown in Matter', 'The heating stays as the MyDyson app sets it.', pick),
   );
 }
 
@@ -242,9 +242,9 @@ function humidifySection(draft: Draft, controls: AvailableControls): Child {
   return radioSection(
     'Humidifying',
     'Matter has no humidifier, so the humidifying takes a switch or a mode select. It runs only while the machine is on, so turning it on turns the machine on.',
-    radio('humidify', 'switches', draft.humidificationControl, 'Switches', `${placement(draft, 'Humidify', true)}, and humidifies to the target set in the Dyson app.${autoSwitch}`, pick),
+    radio('humidify', 'switches', draft.humidificationControl, 'Switches', `${placement(draft, 'Humidify', true)}, and humidifies to the target set in the MyDyson app.${autoSwitch}`, pick),
     radio('humidify', 'select', draft.humidificationControl, 'A mode select', `${placement(draft, 'Target Humidity', true)}, and picks ${autoValue}. ${selectSupport}`, pick),
-    radio('humidify', 'hidden', draft.humidificationControl, 'Not shown in Matter', 'The humidifying stays as the Dyson app sets it.', pick),
+    radio('humidify', 'hidden', draft.humidificationControl, 'Not shown in Matter', 'The humidifying stays as the MyDyson app sets it.', pick),
   );
 }
 
@@ -268,7 +268,7 @@ function moreControlsSection(draft: Draft, controls: AvailableControls): Child {
     'section',
     {},
     h('h2', {}, 'More controls'),
-    h('p', { class: 'help' }, 'Controls of this machine that Matter has no place for. None of them turns a machine that is off on.'),
+    h('p', { class: 'help' }, 'Controls of this machine that Matter has no place for. As in the MyDyson app, most of them turn a machine that is off on: the air quality target and the wick drying do not.'),
     h(
       'div',
       { class: 'choices' },

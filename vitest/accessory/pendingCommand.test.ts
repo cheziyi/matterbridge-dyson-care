@@ -47,13 +47,13 @@ describe('PendingCommand', () => {
     expect(pending.take(snapshot(), () => undefined)).toEqual({});
   });
 
-  it('should leave the auto mode for the last speed, or speed 5, and keep a machine that is off off', () => {
+  it('should leave the auto mode for the last speed, or speed 5', () => {
     const pending = new PendingCommand();
     const inAuto = { ...createFakeClient(purifierCool).state, autoMode: true, fanSpeed: null };
     pending.requestFanAuto(false);
     expect(pending.take(snapshot({ state: inAuto }), () => undefined)).toEqual({ fanSpeed: 6 });
     pending.requestFanAuto(false);
-    expect(pending.take(snapshot({ state: { ...inAuto, fanPower: false }, lastManualFanSpeed: undefined }), () => undefined)).toEqual({ fanSpeed: 5, fanPower: false });
+    expect(pending.take(snapshot({ state: { ...inAuto, fanPower: false }, lastManualFanSpeed: undefined }), () => undefined)).toEqual({ fanSpeed: 5 });
     // A speed asked for with it wins.
     pending.requestFanAuto(false);
     pending.requestControl({ autoMode: true, fanSpeed: 8 });
@@ -90,7 +90,7 @@ describe('PendingCommand', () => {
     expect(pending.take(snapshot({ isSweepSelect: false }), () => undefined)).toEqual({ oscillationMode: 'on', oscillationPresetAngleInDegrees: 90 });
   });
 
-  it('should breeze a machine that tilts, go back to its last angle, and keep a machine that is off off', () => {
+  it('should breeze a machine that tilts, and go back to its last angle', () => {
     const pending = new PendingCommand();
     const tilt = { ...createFakeClient(bigQuiet).state, oscillationMode: null, tiltAngleInDegrees: 25 as const };
     const machine = snapshot({ state: tilt, capabilities: capabilitiesOf(bigQuiet), isSweepSelect: false, isTilt: true, lastTiltAngle: 25 });
@@ -101,7 +101,7 @@ describe('PendingCommand', () => {
     pending.requestOscillationOn(false);
     expect(pending.take({ ...machine, lastTiltAngle: undefined }, () => undefined)).toEqual({ tiltAngleInDegrees: 0 });
     pending.requestTilt(50);
-    expect(pending.take({ ...machine, state: { ...tilt, fanPower: false } }, () => undefined)).toEqual({ tiltAngleInDegrees: 50, fanPower: false });
+    expect(pending.take({ ...machine, state: { ...tilt, fanPower: false } }, () => undefined)).toEqual({ tiltAngleInDegrees: 50 });
     // A power asked for with it wins.
     pending.requestOscillationOn(true);
     pending.requestTilt(0);
@@ -109,32 +109,21 @@ describe('PendingCommand', () => {
     expect(pending.take({ ...machine, state: { ...tilt, fanPower: false } }, () => undefined)).toEqual({ tiltAngleInDegrees: 0, fanPower: true });
   });
 
-  it('should turn a machine that is off on for its fan and what runs alone, and keep it off for every other control', () => {
+  it('should leave whether a machine that is off turns on to dyson-control, as the MyDyson app does', () => {
     const pending = new PendingCommand();
     const off = snapshot({ state: { ...createFakeClient(hotCool).state, fanPower: false, heatMode: 'off', humidificationMode: 'off' } });
     pending.requestControl({ nightMode: true });
-    expect(pending.take(off, () => undefined)).toEqual({ nightMode: true, fanPower: false });
+    expect(pending.take(off, () => undefined)).toEqual({ nightMode: true });
     pending.requestFan();
     expect(pending.take(off, () => 3)).toEqual({ fanSpeed: 3 });
     pending.requestFanAuto(true);
     expect(pending.take(off, () => undefined)).toEqual({ autoMode: true });
-    pending.requestControl({ findAndFollowMode: 'on' });
-    expect(pending.take(off, () => undefined)).toEqual({ findAndFollowMode: 'on' });
     pending.requestControl({ findAndFollowMode: 'off' });
-    expect(pending.take(off, () => undefined)).toEqual({ findAndFollowMode: 'off', fanPower: false });
-    // A setpoint keeps the heating off, and the auto humidifying the humidifying.
+    expect(pending.take(off, () => undefined)).toEqual({ findAndFollowMode: 'off' });
     pending.requestHeatTarget(24);
-    expect(pending.take(off, () => undefined)).toEqual({ targetTemperatureInC: 24, heatMode: 'off', fanPower: false });
+    expect(pending.take(off, () => undefined)).toEqual({ targetTemperatureInC: 24 });
     pending.requestControl({ autoHumidification: true });
-    expect(pending.take(off, () => undefined)).toEqual({ autoHumidification: true, humidificationMode: 'off', fanPower: false });
-    // A machine never read has nothing to keep.
-    pending.requestHeatTarget(24);
-    pending.requestControl({ autoHumidification: false });
-    expect(pending.take(snapshot({ state: undefined }), () => undefined)).toEqual({ targetTemperatureInC: 24, autoHumidification: false });
-    // A machine that reports no heat mode or humidifying mode has none to keep.
-    pending.requestHeatTarget(24);
-    pending.requestControl({ autoHumidification: false });
-    expect(pending.take(snapshot(), () => undefined)).toEqual({ targetTemperatureInC: 24, autoHumidification: false });
+    expect(pending.take(off, () => undefined)).toEqual({ autoHumidification: true });
   });
 
   it('should humidify to a target, and to the auto mode only on a machine that has one', () => {

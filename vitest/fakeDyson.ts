@@ -270,7 +270,7 @@ export function createFakeClient(machine: DysonMachine = purifierCool, state: Pa
     connect: vi.fn(async () => Promise.resolve()),
     disconnect: vi.fn(async () => Promise.resolve()),
     getState: vi.fn(async () => ({ ...client.state })),
-    // As dyson-control 0.7.0 and a later machine do: nearly every field turns the machine on, as the Dyson app has it, a
+    // As dyson-control 0.7.0 and a later machine do: nearly every field turns the machine on, as the MyDyson app has it, a
     // setpoint turns the heating on and a target or the auto humidifying the humidifying, and a speed leaves the auto mode.
     setState: vi.fn(async (control: EnvironmentalCareControl) => {
       const runs = Object.entries(control).some(([field, value]) => {

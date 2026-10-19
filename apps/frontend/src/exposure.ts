@@ -136,7 +136,7 @@ function uniqueName(base: string, taken: ReadonlySet<string>): string {
 }
 
 /**
- * The drafts of machines picked in the Find step, each named after its room in the Dyson app. Machines in one room
+ * The drafts of machines picked in the Find step, each named after its room in the MyDyson app. Machines in one room
  * share its name, so each draft gets one no stored device and no draft before it has.
  */
 export function draftsFromMachines(machines: readonly Machine[]): Draft[] {
@@ -150,7 +150,7 @@ export function draftsFromMachines(machines: readonly Machine[]): Draft[] {
 
 export function draftFromStored(device: StoredDevice): Draft {
   const { capabilities, controls, reportedSensors, name, roomName, serialNumber, type, variant, mqttRootTopicLevel, model, productName, firmwareVersion, firmwareCapabilities } = device;
-  // The machine is named as the Dyson app names it, and the draft as Matter does.
+  // The machine is named as the MyDyson app names it, and the draft as Matter does.
   const machine: Machine = { serialNumber, type, category: 'environmentalCare', name: roomName, variant, mqttRootTopicLevel, model, productName, firmwareVersion, firmwareCapabilities };
   return { machine, name, isNew: false, capabilities, controls, reportedSensors, ...pickExposure(device) };
 }

@@ -160,11 +160,11 @@ export interface DysonDeviceExposure {
 export interface DysonDeviceConfig extends DysonDeviceExposure {
   /**
    * The name of the device in Matter, given in the setup page: no two stored devices share one. It starts as the room
-   * name of the Dyson app, which several machines can share, and a new room name there does not change it.
+   * name of the MyDyson app, which several machines can share, and a new room name there does not change it.
    */
   name: string;
   /**
-   * The room name of the machine in the Dyson app, as the machine list of the account reports it now. The setup page
+   * The room name of the machine in the MyDyson app, as the machine list of the account reports it now. The setup page
    * shows it to tell the machine apart, and Matter never sees it.
    */
   roomName?: string;

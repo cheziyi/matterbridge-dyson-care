@@ -155,13 +155,10 @@ export class PendingCommand {
    *  - a fan control set to off or 0 turns the machine off, unless the power was asked to be on with it
    *  - auto off goes back to the speed the fan last ran at, or to speed 5 when it was never seen at one
    *  - a target humidity turns the humidifying on, and the machine with it
-   *  - a setpoint keeps the heat mode the machine has, and the auto humidifying the humidifying mode it has, where
-   *    dyson-control would turn the heating or the humidifying on with them
    *  - the oscillation of a machine paused while it stands by is turned on and off with its idle modes
    *  - the breeze of a machine that tilts turned off goes back to the angle it was last seen at, or to 0°
-   *  - only the power, a fan speed or the auto mode asked of the fan, the heating, the humidifying and find and follow
-   *    turn a machine that is off on. dyson-control turns it on with nearly every field, as the Dyson app does, so
-   *    every other command to a machine that is off is sent with the power off
+   *  - whether a machine that is off turns on is left to dyson-control, which turns it on with nearly every field, as
+   *    the MyDyson app does
    *
    * @param {MachineSnapshot} machine The machine as it was last read.
    * @param {() => FanRequest | undefined} readFan Reads what the fan control holds. It is only called when the fan control was written.
@@ -170,13 +167,9 @@ export class PendingCommand {
   take(machine: MachineSnapshot, readFan: () => FanRequest | undefined): EnvironmentalCareControl {
     const { control } = this;
     const { state } = machine;
-    // Whether the command asks the machine to run, so that it turns on.
-    let runs = false;
-    if (this.isFanRequested) runs = this.applyFan(control, readFan());
-    if (this.fanAuto === true) {
-      control.autoMode = true;
-      runs = true;
-    } else if (this.fanAuto === false && (control.autoMode ?? state?.autoMode) === true) {
+    if (this.isFanRequested) this.applyFan(control, readFan());
+    if (this.fanAuto === true) control.autoMode = true;
+    else if (this.fanAuto === false && (control.autoMode ?? state?.autoMode) === true) {
       control.fanSpeed = control.fanSpeed ?? machine.lastManualFanSpeed ?? middleFanSpeed;
       delete control.autoMode;
     }
@@ -204,12 +197,6 @@ export class PendingCommand {
       if (machine.capabilities.autoHumidification) control.autoHumidification = isAuto;
       if (this.humidity !== 'auto') control.manualHumidificationTargetInPercent = this.humidity;
     }
-    if (control.targetTemperatureInC !== undefined && control.heatMode === undefined && state !== undefined && state.heatMode !== null) control.heatMode = state.heatMode;
-    if (control.autoHumidification !== undefined && control.humidificationMode === undefined && state !== undefined && state.humidificationMode !== null) {
-      control.humidificationMode = state.humidificationMode;
-    }
-    if (control.findAndFollowMode !== undefined && control.findAndFollowMode !== 'off') runs = true;
-    if (!runs && control.fanPower === undefined && state?.fanPower === false && Object.keys(control).length > 0) control.fanPower = false;
     this.clear();
     return control;
   }
@@ -229,15 +216,12 @@ export class PendingCommand {
     this.humidity = undefined;
   }
 
-  // Off is the power, unless a controller turned the power on with the same write; auto and a speed turn it on, which is what it returns.
-  private applyFan(control: EnvironmentalCareControl, request: FanRequest | undefined): boolean {
-    if (request === undefined || control.fanPower === false) return false;
+  // Off is the power, unless a controller turned the power on with the same write.
+  private applyFan(control: EnvironmentalCareControl, request: FanRequest | undefined): void {
+    if (request === undefined || control.fanPower === false) return;
     if (request === 'off') {
       if (control.fanPower !== true) control.fanPower = false;
-      return false;
-    }
-    if (request === 'auto') control.autoMode = true;
+    } else if (request === 'auto') control.autoMode = true;
     else control.fanSpeed = request;
-    return true;
   }
 }

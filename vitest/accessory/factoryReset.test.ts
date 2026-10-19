@@ -107,8 +107,7 @@ describe('a device when the Matter node is reset to factory defaults', () => {
     expect(client.setState).toHaveBeenLastCalledWith({ fanPower: false });
     await writeAsController(accessory.nightModeSwitch, 'OnOff', 'onOff', true);
     await accessory.flushCommands();
-    // The machine is off, and the night mode leaves it off.
-    expect(client.setState).toHaveBeenLastCalledWith({ nightMode: true, fanPower: false });
+    expect(client.setState).toHaveBeenLastCalledWith({ nightMode: true });
     // Each write was taken once: the reset left no subscription behind twice.
     expect(client.setState).toHaveBeenCalledTimes(2);
   });
