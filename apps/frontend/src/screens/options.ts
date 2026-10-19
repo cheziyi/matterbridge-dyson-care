@@ -35,7 +35,7 @@ function placement(draft: Draft, label: string, isTagged: boolean): string {
   return isTagged ? `It appears as a part of "${draft.name}", tagged "${label}"` : `It appears as a part of "${draft.name}"`;
 }
 
-function update(draft: Draft, change: Partial<Draft>): void {
+function update(draft: Draft, change: Partial<Exposure>): void {
   Object.assign(draft, change);
   render();
 }
