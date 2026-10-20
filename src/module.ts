@@ -41,10 +41,10 @@ import {
   type DysonAccountConfig,
   type DysonDeviceConfig,
   type DysonPlatformConfig,
-  getLanHost,
   getUnreadableDevices,
   hasSameExposure,
   hasSameMachine,
+  isTriedOnLan,
   normalizePollInterval,
   parseAccountConfig,
   parseDeviceConfigs,
@@ -56,7 +56,7 @@ import { describeSignInFailure, getErrorMessage, isSignInRequired, type SignInSt
 import { getMachineUpdate } from './platform/machineSync.js';
 import { SensorStore } from './platform/sensorStore.js';
 import { parseSetupRevision, SetupRevisions } from './platform/setupRevisions.js';
-import { getMachineSupport, probeMachine, type ProbeResult } from './setup/probe.js';
+import { getMachineSupport, probeMachine, type ProbeResult, searchLan } from './setup/probe.js';
 import { type FoundMachine, getMachineReport, handleSetupRequest, type SetupDevice, type SetupPlatform, type SetupState, type SignInRequest } from './setup/setupApi.js';
 
 /** How often, in milliseconds, the machine list of the account is read to keep the firmware of each machine up to date. */
@@ -235,7 +235,7 @@ export class DysonPlatform extends MatterbridgeDynamicPlatform implements SetupP
       devices.push({
         ...withoutLanPassword(device),
         status: state,
-        lanHost: getLanHost(device),
+        isTriedOnLan: isTriedOnLan(device),
         hostType: status?.hostType,
         error: status === undefined ? this.startErrors.get(device.serialNumber) : status.lastError,
         capabilities,
@@ -344,21 +344,23 @@ export class DysonPlatform extends MatterbridgeDynamicPlatform implements SetupP
   }
 
   /**
-   * Check whether a machine answers through the cloud
+   * Check whether a machine answers through the cloud, and search the LAN for it at the same time
    *
    * @param {DysonMachine} machine The machine to check.
-   * @returns {Promise<ProbeResult>} `ready` with the readings the machine is known to have given, or the failure that stands in the way.
+   * @returns {Promise<ProbeResult>} `ready` with the readings the machine is known to have given and whether the search found it, or the failure that stands in the way.
    */
   async probe(machine: DysonMachine): Promise<ProbeResult> {
     const { account } = this;
     if (account === undefined) return { status: 'signInRequired', machine, message: 'No Dyson account is signed in' };
-    const result = await probeMachine(machine, account);
+    // The setup page never sees the password of the broker of the machine on the LAN, which the search needs.
+    const apPasswordHash = this.lanPasswords.get(machine.serialNumber) ?? this.devices.find((device) => device.serialNumber === machine.serialNumber)?.apPasswordHash;
+    const [result, isFoundOnLan] = await Promise.all([probeMachine(machine, account), apPasswordHash === undefined ? undefined : searchLan({ ...machine, apPasswordHash })]);
     if (result.status === 'signInRequired') this.rejectAccount();
     if (result.sensors === undefined) return result;
     this.probedSensors.set(machine.serialNumber, result.sensors);
     // A reading the machine gave before still counts, whether or not this check got it.
     const known = (await this.sensorStore.read(machine)) ?? noReportedSensors;
-    return { ...result, reportedSensors: addReportedSensors(known, result.sensors) };
+    return { ...result, isFoundOnLan, reportedSensors: addReportedSensors(known, result.sensors) };
   }
 
   /**
@@ -520,10 +522,11 @@ export class DysonPlatform extends MatterbridgeDynamicPlatform implements SetupP
     }
   }
 
-  // The machine's own broker on the LAN first, and the cloud's when it does not answer.
+  // The machine's own broker on the LAN first, at its host or found by a search, and the cloud's when it does not answer;
+  // or the cloud's alone, with no search to wait for.
   private createClientFactory(device: DysonDeviceConfig, account: DysonAccountConfig): MachineClientFactory {
-    const host = getLanHost(device);
-    return (handlers) => new EnvironmentalCareClient(toDysonMachine(device), { account, host, timeoutInMs: machineTimeoutInMs, ...handlers });
+    const brokers = isTriedOnLan(device) ? { host: device.host } : { local: false as const };
+    return (handlers) => new EnvironmentalCareClient(toDysonMachine(device), { account, ...brokers, timeoutInMs: machineTimeoutInMs, ...handlers });
   }
 
   private async applyMachines(machines: DysonMachine[]): Promise<void> {

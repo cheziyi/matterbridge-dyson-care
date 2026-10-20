@@ -52,6 +52,8 @@ export interface ProbeResult {
   reportedSensors?: ReportedSensors;
   /** The words of the cloud, the broker or the machine for a failure. */
   message?: string;
+  /** Whether a search of the LAN found the machine and its broker there opened, when the status is `ready`: undefined when the cloud has not given the password of its broker. */
+  isFoundOnLan?: boolean;
 }
 
 /**
@@ -89,6 +91,36 @@ function classifyFailure(error: unknown, machine: DysonMachine): ProbeResult {
   if (status === 501) return { status: 'unsupported', machine, message };
   if (status === 503 || status === 504) return { status: 'unreachable', machine, message };
   return { status: 'failed', machine, message };
+}
+
+/**
+ * Tell whether a machine answers on the LAN, found by a search for the service it announces over mDNS
+ *
+ * The client is given neither an account nor a host, so it searches the LAN and asks nothing of the cloud. A search
+ * that finds nothing in 3 seconds, or a broker that does not open, answers false.
+ *
+ * @param {DysonMachine} machine The machine, with the password of its broker on the LAN.
+ * @returns {Promise<boolean>} True when the broker of the machine on the LAN opened.
+ */
+export async function searchLan(machine: DysonMachine): Promise<boolean> {
+  let client: EnvironmentalCareClient;
+  try {
+    client = new EnvironmentalCareClient(machine, { timeoutInMs: probeTimeoutInMs });
+  } catch {
+    return false;
+  }
+  try {
+    await client.connect();
+    return true;
+  } catch {
+    return false;
+  } finally {
+    try {
+      await client.disconnect();
+    } catch {
+      // The search already has its answer.
+    }
+  }
 }
 
 /**

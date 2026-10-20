@@ -154,8 +154,8 @@ const platform = {
       const machine = machineOf(device.serialNumber);
       const capabilities = capabilitiesOf(machine);
       const run = world.runs.get(device.serialNumber) ?? { status: 'connecting' };
-      // Each is tried on the LAN first, at the name it gives itself.
-      return { ...device, ...run, lanHost: `${device.serialNumber}.local`, capabilities, controls: getAvailableControls(capabilities), reportedSensors: addReportedSensors(noReportedSensors, sensorsOf(machine)) };
+      // Each is tried on the LAN first, found by a search.
+      return { ...device, ...run, isTriedOnLan: true, capabilities, controls: getAvailableControls(capabilities), reportedSensors: addReportedSensors(noReportedSensors, sensorsOf(machine)) };
     }),
   }),
   getCountries: async () => ['AU', 'CA', 'CN', 'DE', 'FR', 'GB', 'IE', 'IT', 'JP', 'NL', 'SG', 'US'],

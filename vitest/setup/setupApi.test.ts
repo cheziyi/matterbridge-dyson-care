@@ -152,7 +152,7 @@ describe('setupApi', () => {
     vi.mocked(platform.saveDevice).mockClear();
     expect(await handleSetupRequest(platform, 'POST', 'device', {}, { device: { ...device, host: 'http://purifier' } })).toEqual({
       ok: false,
-      error: 'Enter a host name or an IPv4 address for Living Room, or leave the host empty to reach it at NK6-EU-MHA0001A.local',
+      error: 'Enter a host name or an IPv4 address for Living Room, or leave the host empty to search your network for it',
     });
     expect(platform.saveDevice).not.toHaveBeenCalled();
   });

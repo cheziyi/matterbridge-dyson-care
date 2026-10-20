@@ -179,10 +179,15 @@ export interface DysonDeviceConfig extends DysonDeviceExposure {
   firmwareVersion?: string;
   firmwareCapabilities?: string[];
   /**
-   * The host name or IPv4 address the machine is reached at on the LAN, given in the setup page for a network where its
-   * own name does not resolve. Left out, it is `<serialNumber>.local`: see `getLanHost`.
+   * The host name or IPv4 address the machine is reached at on the LAN, given in the setup page for a network the search
+   * for it does not reach. Left out, dyson-control searches the LAN for it.
    */
   host?: string;
+  /**
+   * Whether the machine is reached through the Dyson cloud alone, so that a connection does not wait for a search of
+   * the LAN first. The setup page picks it for a new machine that no host is given for and the search does not find.
+   */
+  isCloudOnly?: boolean;
   /** The password of the machine's own broker on the LAN, as the machine list of the account reports it. The setup page never sees it. */
   apPasswordHash?: string;
 }
@@ -303,17 +308,16 @@ export function normalizeHost(value: unknown): string | undefined {
 }
 
 /**
- * Tell where a stored machine is reached on the LAN
+ * Tell whether a stored machine is tried on the LAN before the cloud
  *
  * Its own broker there takes the password the machine list of the account reports, so a machine stored without it is
  * reached through the cloud alone until the list is read again.
  *
  * @param {DysonDeviceConfig} device The stored device.
- * @returns {string | undefined} The host given in the setup page, else `<serialNumber>.local`, the name the machine gives itself over mDNS. Undefined without the password.
+ * @returns {boolean} Whether the cloud gave the password of its broker on the LAN, and the device is not set to the cloud alone.
  */
-export function getLanHost(device: DysonDeviceConfig): string | undefined {
-  if (device.apPasswordHash === undefined) return undefined;
-  return device.host ?? `${device.serialNumber}.local`;
+export function isTriedOnLan(device: DysonDeviceConfig): boolean {
+  return device.apPasswordHash !== undefined && device.isCloudOnly !== true;
 }
 
 /**
@@ -387,7 +391,8 @@ export function parseAccountConfig(value: unknown): DysonAccountConfig | undefin
  * Edge cases:
  *  - a setting that is stored but not valid falls back like one that is missing, and is reported
  *  - a firmware capability that is not a string is dropped
- *  - a host that is stored but not valid is dropped and reported: the machine is reached at its own name
+ *  - a host that is stored but not valid is dropped and reported: the machine is searched for on the LAN
+ *  - a cloud-only setting that is stored but not a boolean is dropped and reported: the machine is tried on the LAN
  *
  * @param {unknown} value The stored value.
  * @param {(message: string) => void} [report] Called once for each setting that is stored but not valid.
@@ -446,7 +451,10 @@ export function parseDeviceConfig(value: unknown, report?: (message: string) => 
   if (Array.isArray(raw.firmwareCapabilities)) device.firmwareCapabilities = raw.firmwareCapabilities.filter((capability) => isValidString(capability, 1, maxFieldLength));
   const host = normalizeHost(raw.host);
   if (host !== undefined) device.host = host;
-  else if (raw.host !== undefined) report?.(`"${name}" has the host ${JSON.stringify(raw.host)}, which is not valid: it is reached at ${raw.serialNumber}.local instead`);
+  else if (raw.host !== undefined) report?.(`"${name}" has the host ${JSON.stringify(raw.host)}, which is not valid: it is searched for on the LAN instead`);
+  if (raw.isCloudOnly === true) device.isCloudOnly = true;
+  else if (raw.isCloudOnly !== undefined && raw.isCloudOnly !== false)
+    report?.(`"${name}" has the isCloudOnly ${JSON.stringify(raw.isCloudOnly)}, which is not valid: it is tried on the LAN first instead`);
   if (isValidString(raw.apPasswordHash, 1, maxPasswordLength)) device.apPasswordHash = raw.apPasswordHash;
   return device;
 }
@@ -542,6 +550,7 @@ export function hasSameMachine(left: DysonDeviceConfig, right: DysonDeviceConfig
     left.firmwareVersion === right.firmwareVersion &&
     (left.firmwareCapabilities ?? []).join() === (right.firmwareCapabilities ?? []).join() &&
     left.host === right.host &&
+    left.isCloudOnly === right.isCloudOnly &&
     left.apPasswordHash === right.apPasswordHash
   );
 }

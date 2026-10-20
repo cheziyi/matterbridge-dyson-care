@@ -77,8 +77,8 @@ export function getMachineReport(state: EnvironmentalCareState | undefined, faul
 export type SetupDevice = Omit<DysonDeviceConfig, 'apPasswordHash'> & {
   /** `online`, `connecting` until its first read ends and `offline` for a running device, `stopped` for one that could not be started yet. */
   status: 'online' | 'connecting' | 'offline' | 'stopped';
-  /** Where the machine is tried first on the LAN, or undefined when the cloud has not given the password of its broker there. */
-  lanHost?: string;
+  /** Whether the machine is tried on the LAN first, at its `host` or by a search: false until the cloud gives the password of its broker there. */
+  isTriedOnLan: boolean;
   /** The broker its open connection goes through: the machine's own on the LAN, or the cloud's. */
   hostType?: HostType;
   error?: string;
@@ -281,7 +281,7 @@ async function handlePost(platform: SetupPlatform, path: string, body: Record<st
     if (device === undefined) return fail('The device needs a name of at most 32 characters, the serial number of its machine and its type');
     const { host } = toRecord(body.device);
     if (host !== undefined && normalizeHost(host) === undefined)
-      return fail(`Enter a host name or an IPv4 address for ${device.name}, or leave the host empty to reach it at ${device.serialNumber}.local`);
+      return fail(`Enter a host name or an IPv4 address for ${device.name}, or leave the host empty to search your network for it`);
     await platform.saveDevice(device);
     return { ok: true, state: await platform.getSetupState() };
   }

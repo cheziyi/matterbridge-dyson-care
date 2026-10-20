@@ -116,8 +116,14 @@ const routeNames = { local: ' on your network', remote: ' through the Dyson clou
 
 // A machine that answers through the cloud did not on the LAN, where the plugin tries it first.
 function routeLine(device: StoredDevice): Child {
-  if (device.status !== 'online' || device.hostType !== 'remote' || device.lanHost === undefined) return null;
-  return h('p', { class: 'meta' }, `It did not answer on your network at ${device.lanHost}, so the plugin reaches it through the Dyson cloud. Check the host in its options.`);
+  if (device.status !== 'online' || device.hostType !== 'remote' || !device.isTriedOnLan) return null;
+  if (device.host !== undefined)
+    return h('p', { class: 'meta' }, `It did not answer on your network at ${device.host}, so the plugin reaches it through the Dyson cloud. Check the host in its options.`);
+  return h(
+    'p',
+    { class: 'meta' },
+    'It was not found on your network, so the plugin reaches it through the Dyson cloud. Where the search does not reach it, such as in a Docker container, enter its IP address in its options.',
+  );
 }
 
 function deviceRow(device: StoredDevice): HTMLElement {

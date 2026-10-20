@@ -11,8 +11,10 @@ import type { AvailableControls, Capabilities, Exposure, ListedMachine, Machine,
 export interface Draft extends Exposure {
   machine: Machine;
   name: string;
-  /** The host the machine is reached at on the LAN, or empty for the name it gives itself. */
+  /** The host the machine is reached at on the LAN, or empty to search the LAN for it. */
   host: string;
+  /** Whether the machine is reached through the Dyson cloud alone, never on the LAN. */
+  isCloudOnly: boolean;
   isNew: boolean;
   capabilities?: Capabilities;
   /** What the plugin says the machine leaves to choose in Options. */
