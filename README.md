@@ -17,7 +17,7 @@ It is a [Matterbridge](https://matterbridge.io) plugin built on [dyson-control](
 ## Why this plugin
 
 - **It finds your machines for you.** Sign in once in the setup page and it lists every machine of your Dyson account, with whether it can control each one. There is no serial number, credential or configuration file to look up: see [Guided setup](#guided-setup).
-- **It fits the Matter app you use.** Matter apps differ in what they show, so you choose how each control appears: the oscillation, the night mode and the airflow direction on the fan itself or as switches, the auto mode as a fan mode, a switch or a step, and a mode select for the oscillation angle or the target humidity. Presets for Apple Home, Google Home and the apps with full Matter support give you a starting point: see [Presets](#presets).
+- **It fits the Matter app you use.** Matter apps differ in what they show, so you choose how each control appears: the oscillation, the night mode and the airflow direction on the fan itself or as switches, the auto mode as a fan mode, a switch or a step, a mode select for the oscillation angle or the target humidity, and a fan of its own for the oscillation, whose speeds are its angles. Presets for Apple Home, Google Home and the apps with full Matter support give you a starting point: see [Presets](#presets).
 - **It offers only what your machine can do.** The plugin reads which controls each machine carries from its type, its model, its variant and its firmware, and builds its device in Matter from that. A heater gets a thermostat, a humidifier its humidifying, a purifier its air quality sensor.
 - **It reaches more of the machine than the power and the fan.** Besides the fan speed, the auto mode, the oscillation and the night mode, you get the oscillation angle, the tilt, the heating, the humidifying, find and follow, the filters, and switches for the child lock, the jet focus, the UV light, the ioniser and the like: see the [comparison](#compared-with-other-dyson-plugins).
 - **It shows the air quality.** A purifier gets an air quality sensor with the air quality of its worst pollutant and each pollutant it measures: PM2.5, PM10, VOC, NO₂, formaldehyde and CO₂.
@@ -113,7 +113,7 @@ The screenshots show the setup page with simulated machines: the plugin's own se
 | More controls     | Switches or mode selects for the child lock, the UV light and the like, on a machine that has them: see [More controls](#more-controls) |
 | Readings          | An air quality sensor, a temperature sensor and a humidity sensor, each once the machine gives its reading: see [Readings](#readings)   |
 
-A switch or a mode select is for the Matter apps that do not show a control in its place on the fan control: it comes beside that place, never in place of it, so the place stays for the apps that show it. A control that has a place on the fan control is never hidden, because an app that does not show the place leaves it out. The oscillation is the one exception: its switch or its select takes the place of the rocking, because Apple Home mishandles the rocking.
+A switch or a mode select is for the Matter apps that do not show a control in its place on the fan control: it comes beside that place, never in place of it, so the place stays for the apps that show it. A control that has a place on the fan control is never hidden, because an app that does not show the place leaves it out. The oscillation is the one exception: its switch, its select or its fan takes the place of the rocking, because Apple Home mishandles the rocking.
 
 ### How it is built in Matter
 
@@ -127,6 +127,7 @@ flowchart TD
         thermostat["Thermostat<br/>Thermostat, heating only, and Thermostat User Interface Configuration on a heater with a temperature unit"]
         switches["On/Off Plug-in Unit, one for each switch<br/>tagged 1 Auto Mode, 2 Night Mode and so on<br/>On/Off"]
         selects["Mode Select, one for each select: the oscillation or the tilt,<br/>the find and follow, the target humidity, the water hardness,<br/>the air quality target and the wick drying speed<br/>Mode Select"]
+        oscillation["Fan, for the oscillation or the tilt, tagged Oscillation<br/>On/Off, Fan Control"]
         air["Air Quality Sensor<br/>Air Quality, and a concentration measurement for each pollutant"]
         sensors["Temperature Sensor, Humidity Sensor<br/>Temperature Measurement, Relative Humidity Measurement"]
     end
@@ -134,6 +135,7 @@ flowchart TD
     main -.-> thermostat
     main -.-> switches
     main -.-> selects
+    main -.-> oscillation
     main -.-> air
     main -.-> sensors
 ```
@@ -146,7 +148,7 @@ A solid line is always there. A dashed one is there when you choose it in the se
 | Bridged Node        | 0x0013 | Each device: its name, serial number and reachability |
 | Power Source        | 0x0011 | Each device: mains powered                            |
 | Air Purifier        | 0x002D | The machine, as an air purifier                       |
-| Fan                 | 0x002B | The machine, as a fan                                 |
+| Fan                 | 0x002B | The machine, as a fan, or its oscillation             |
 | Thermostat          | 0x0301 | The heating of a heater                               |
 | On/Off Plug-in Unit | 0x010A | Each switch                                           |
 | Mode Select         | 0x0027 | Each select                                           |
@@ -198,6 +200,7 @@ A machine that dyson-control reads as not oscillating, such as the type 965, get
 | Native rocking | The left and right rocking of the fan control, as Matter has it. Not every app shows it                                                                                              |
 | A switch       | A switch named `<name> Oscillation`, in place of the rocking. On sweeps the angle set in the MyDyson app                                                                             |
 | A mode select  | A mode select named `<name> Oscillation`, in place of the rocking, with Off and the angles the machine sweeps: see below. Few Matter apps show it: see [Mode selects](#mode-selects) |
+| A fan          | A fan named `<name> Oscillation`, in place of the rocking: see [Oscillation fan](#oscillation-fan)                                                                                   |
 
 The mode select offers what the machine takes:
 
@@ -211,15 +214,29 @@ A sweep the select does not list, such as one set in the MyDyson app, leaves the
 
 A machine that pauses its oscillation while it stands by takes it on and off in modes of their own, which the plugin sends in place of on and off while the machine stands by, as dyson-control asks.
 
+#### Oscillation fan
+
+Every Matter app shows a fan, so the oscillation can be one of its own, for the apps that show neither the rocking nor a mode select. Its speeds are the angles the machine can be at, from the first, and the breeze of a machine that has one is its fan mode Auto. Its speeds are steps or a percentage, as you choose for the fan speed:
+
+| Machine                             | Speeds                                                                               | Auto   |
+| ----------------------------------- | ------------------------------------------------------------------------------------ | ------ |
+| One whose firmware takes two angles | Still, then the sweeps 45°, 90°, 180° and 350°, centred as on the mode select        | None   |
+| One with preset angles              | Still, then its presets: 45°, 90°, 180° and 350°, or 15°, 40° and 70° on some models | None   |
+| A humidifier whose barrel turns     | Still, then 45° and 90°                                                              | Breeze |
+| The Big+Quiet, which tilts          | 0°, 25° and 50°                                                                      | Breeze |
+
+Still is the first speed: the machine stops oscillating and stays where it is. The on/off of the fan is the power of the machine: it is on while the machine is, whatever the machine oscillates. Its own on and off, and setting it to off or 0, send nothing, and the fan goes back to what the machine holds. A speed or Auto on a machine that is off can turn it on, as the oscillation and the tilt do: see [Power](#power). An angle the fan does not have, such as one set in the MyDyson app, shows the fan on at the speed it showed before. Matter has the fan modes Low, Medium and High for at least three speeds. A machine that oscillates only on and off, or takes its two angles only as one direction, has no angle to make a speed of: the oscillation is a switch on it.
+
 ### Tilt
 
 The Big+Quiet tilts in place of oscillating: to 0°, 25° or 50°, or back and forth in its breeze. Its oscillation options are for the tilt:
 
-| Option         | In Matter                                                                                                                                       |
-| -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| Native rocking | The up and down rocking of the fan control. On breezes, and off tilts the machine back to the angle it was at, or to 0°. Not every app shows it |
-| A switch       | A switch named `<name> Oscillation`, in place of the rocking, which breezes the same way                                                        |
-| A mode select  | A mode select named `<name> Tilt`, in place of the rocking, with 0°, 25°, 50° and Breeze                                                        |
+| Option         | In Matter                                                                                                                                                                                  |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Native rocking | The up and down rocking of the fan control. On breezes, and off tilts the machine back to the angle it was at, or to 0°. Not every app shows it                                            |
+| A switch       | A switch named `<name> Oscillation`, in place of the rocking, which breezes the same way                                                                                                   |
+| A mode select  | A mode select named `<name> Tilt`, in place of the rocking, with 0°, 25°, 50° and Breeze                                                                                                   |
+| A fan          | A fan named `<name> Oscillation`, in place of the rocking, with 0°, 25° and 50° as its speeds and Breeze as its auto, on and off with the machine: see [Oscillation fan](#oscillation-fan) |
 
 A tilt turns a machine that is off on, as in the MyDyson app: see [Power](#power).
 
@@ -385,7 +402,7 @@ This plugin is the one for a humidifier, and the one that reaches the oscillatio
 | A machine that stops answering | Shown as unreachable after two failed reads, or when its connection does not open again                                                                                                                                                  | Shown as unreachable when its connection closes, or when the machine says it is leaving                                                                                                                                                                     |
 | Device types                   | An air purifier or a fan, as you choose, with a thermostat, the switches, the mode selects and the sensors as parts of it or as devices of their own                                                                                     | An air purifier for every machine, the fans included, with an air quality sensor and a thermostat as devices of their own. Temperature and humidity sensors, and one composed device, are optional                                                          |
 | Fan speed and auto             | Steps or a percentage, and the auto mode as a fan mode, a switch or a step                                                                                                                                                               | Speeds 1 to 10, and the Auto fan mode                                                                                                                                                                                                                       |
-| Oscillation                    | The rocking of the fan control, a switch, or a mode select with the angles the machine sweeps. The tilt of the Big+Quiet the same way                                                                                                    | The rocking of the fan control, on and off. The tilt of the Big+Quiet as up and down rocking. No angles                                                                                                                                                     |
+| Oscillation                    | The rocking of the fan control, a switch, a mode select with the angles the machine sweeps, or a fan with them as its speeds. The tilt of the Big+Quiet the same way                                                                     | The rocking of the fan control, on and off. The tilt of the Big+Quiet as up and down rocking. No angles                                                                                                                                                     |
 | Night mode                     | The sleep wind of the fan control, and an optional switch                                                                                                                                                                                | The sleep wind of the fan control                                                                                                                                                                                                                           |
 | Heating                        | A thermostat or a switch                                                                                                                                                                                                                 | A thermostat                                                                                                                                                                                                                                                |
 | Humidifying                    | Switches or a mode select for the target humidity, and the water hardness                                                                                                                                                                | No. The breeze of the Humidify+Cool as its natural wind                                                                                                                                                                                                     |

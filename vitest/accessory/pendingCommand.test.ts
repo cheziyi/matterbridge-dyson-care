@@ -109,6 +109,105 @@ describe('PendingCommand', () => {
     expect(pending.take({ ...machine, state: { ...tilt, fanPower: false } }, () => undefined)).toEqual({ tiltAngleInDegrees: 0, fanPower: true });
   });
 
+  it('should sweep the angle of the oscillation fan, breeze in its auto, and stand still at its first speed', () => {
+    const pending = new PendingCommand();
+    const machine = snapshot({ isSweepSelect: false, capabilities: capabilitiesOf(humidifyCool) });
+    pending.requestOscillationFan();
+    expect(
+      pending.take(
+        machine,
+        () => undefined,
+        () => 90,
+      ),
+    ).toEqual({ oscillationMode: 'on', oscillationPresetAngleInDegrees: 90 });
+    pending.requestOscillationFan();
+    expect(
+      pending.take(
+        machine,
+        () => undefined,
+        () => 'auto',
+      ),
+    ).toEqual({ oscillationMode: 'on', oscillationPresetAngleInDegrees: 'breeze' });
+    pending.requestOscillationFan();
+    expect(
+      pending.take(
+        machine,
+        () => undefined,
+        () => 'still',
+      ),
+    ).toEqual({ oscillationMode: 'off' });
+    // A sweep of a machine that takes two angles.
+    pending.requestOscillationFan();
+    expect(
+      pending.take(
+        snapshot(),
+        () => undefined,
+        () => 180,
+      ),
+    ).toEqual({ oscillationMode: 'on', oscillationAngles: { lowerInDegrees: 90, upperInDegrees: 270 } });
+  });
+
+  it('should send nothing for the oscillation fan set to off, or holding nothing, since its on/off is the power of the machine', () => {
+    const pending = new PendingCommand();
+    const machine = snapshot({ isSweepSelect: false, capabilities: capabilitiesOf(humidifyCool) });
+    pending.requestOscillationFan();
+    expect(
+      pending.take(
+        machine,
+        () => undefined,
+        () => 'off',
+      ),
+    ).toEqual({});
+    pending.requestOscillationFan();
+    expect(
+      pending.take(
+        machine,
+        () => undefined,
+        () => undefined,
+      ),
+    ).toEqual({});
+    pending.requestOscillationFan();
+    expect(pending.take(machine, () => undefined)).toEqual({});
+  });
+
+  it('should tilt a machine that tilts to the angle of its oscillation fan, and breeze it in its auto', () => {
+    const pending = new PendingCommand();
+    const tilt = { ...createFakeClient(bigQuiet).state, oscillationMode: null, tiltAngleInDegrees: 25 as const };
+    const machine = snapshot({ state: tilt, capabilities: capabilitiesOf(bigQuiet), isSweepSelect: false, isTilt: true, lastTiltAngle: 25 });
+    pending.requestOscillationFan();
+    expect(
+      pending.take(
+        machine,
+        () => undefined,
+        () => 0,
+      ),
+    ).toEqual({ tiltAngleInDegrees: 0 });
+    pending.requestOscillationFan();
+    expect(
+      pending.take(
+        machine,
+        () => undefined,
+        () => 50,
+      ),
+    ).toEqual({ tiltAngleInDegrees: 50 });
+    pending.requestOscillationFan();
+    expect(
+      pending.take(
+        machine,
+        () => undefined,
+        () => 'auto',
+      ),
+    ).toEqual({ tiltAngleInDegrees: 'breeze' });
+    pending.requestOscillationFan();
+    expect(
+      pending.take(
+        machine,
+        () => undefined,
+        () => 'off',
+      ),
+    ).toEqual({});
+  });
+
   it('should leave whether a machine that is off turns on to dyson-control, as the MyDyson app does', () => {
     const pending = new PendingCommand();
     const off = snapshot({ state: { ...createFakeClient(hotCool).state, fanPower: false, heatMode: 'off', humidificationMode: 'off' } });
@@ -150,6 +249,7 @@ describe('PendingCommand', () => {
     expect(pending.take(snapshot({ capabilities: capabilitiesOf(hotCool) }), () => undefined)).toEqual({ targetTemperatureInC: 37 });
     pending.requestHeatTarget(22);
     pending.requestFan();
+    pending.requestOscillationFan();
     pending.clear();
     expect(pending.take(snapshot(), () => 'off')).toEqual({});
   });

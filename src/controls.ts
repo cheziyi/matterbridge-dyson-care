@@ -24,7 +24,7 @@
 import type { EnvironmentalCareCapabilities, EnvironmentalCareSensors, TiltAngle } from 'dyson-control';
 
 import { type DysonDeviceConfig, SETTING_CONTROLS, type SettingControlKey } from './config.js';
-import { getSweeps, type OscillationSelectValue } from './mapping.js';
+import { getSweeps, isOscillationSweep, type OscillationFanAngle, type OscillationSelectValue } from './mapping.js';
 import { settingControls } from './settingControls.js';
 
 /** The angles an oscillation select offers besides off. */
@@ -40,6 +40,8 @@ export interface AvailableControls {
   oscillationAngles: OscillationAngleChoice[];
   /** The angles the select of a machine that tilts offers, with its breeze, or none for a machine that does not tilt. */
   tiltAngles: TiltAngle[];
+  /** The angles an oscillation fan has as its speeds, narrowest first: those of the oscillation select, or those a machine that tilts tilts to. Empty when it can have no oscillation fan. Its breeze, when it has one, is the fan mode Auto. */
+  oscillationFanAngles: OscillationFanAngle[];
   /** Whether the machine turns to follow the people it finds. */
   hasFindAndFollow: boolean;
   /** Whether apps can turn the air the machine blows to the front or the back. */
@@ -82,11 +84,15 @@ export function getOscillationAngles(capabilities: EnvironmentalCareCapabilities
 export function getAvailableControls(capabilities: EnvironmentalCareCapabilities): AvailableControls {
   const isTilt = capabilities.oscillation === 'tilt';
   const hasOscillation = isTilt ? capabilities.tiltAnglesInDegrees.includes('breeze') : capabilities.oscillation !== 'none';
+  const oscillationAngles = hasOscillation && !isTilt ? getOscillationAngles(capabilities) : [];
+  // A machine that tilts without a breeze has no oscillation, and so no fan of it.
+  const tiltFanAngles = hasOscillation ? capabilities.tiltAnglesInDegrees.filter((angle) => angle !== 'breeze') : [];
   return {
     hasAutoMode: capabilities.autoMode,
     hasOscillation,
-    oscillationAngles: hasOscillation && !isTilt ? getOscillationAngles(capabilities) : [],
+    oscillationAngles,
     tiltAngles: [...capabilities.tiltAnglesInDegrees],
+    oscillationFanAngles: isTilt ? tiltFanAngles : oscillationAngles.filter((angle) => isOscillationSweep(angle)),
     hasFindAndFollow: capabilities.findAndFollowModes.includes('on'),
     hasAirflowDirection: capabilities.fanAirDirections.length > 1,
     hasHeat: capabilities.heatModes.includes('heat'),
@@ -104,7 +110,7 @@ export function getAvailableControls(capabilities: EnvironmentalCareCapabilities
  *
  * @param {DysonDeviceConfig} device The device.
  * @param {EnvironmentalCareCapabilities} capabilities What its machine takes.
- * @returns {DysonDeviceConfig} The device, with the controls of what the machine lacks hidden, an auto mode it lacks back to the native fan mode, and an oscillation select without angles to choose a switch. The choice for an oscillation or an airflow direction the machine lacks is kept: its device has neither.
+ * @returns {DysonDeviceConfig} The device, with the controls of what the machine lacks hidden, an auto mode it lacks back to the native fan mode, and an oscillation select or fan without angles to choose a switch. The choice for an oscillation or an airflow direction the machine lacks is kept: its device has neither.
  */
 export function fitToCapabilities(device: DysonDeviceConfig, capabilities: EnvironmentalCareCapabilities): DysonDeviceConfig {
   const controls = getAvailableControls(capabilities);
@@ -113,6 +119,7 @@ export function fitToCapabilities(device: DysonDeviceConfig, capabilities: Envir
   let { oscillationControl } = device;
   const hasNoAngle = controls.oscillationAngles.length === 0 && controls.tiltAngles.length === 0;
   if (controls.hasOscillation && oscillationControl === 'select' && hasNoAngle) oscillationControl = 'switch';
+  if (controls.hasOscillation && oscillationControl === 'fan' && controls.oscillationFanAngles.length === 0) oscillationControl = 'switch';
   return {
     ...fitted,
     fanAutoControl: controls.hasAutoMode ? device.fanAutoControl : 'native',
