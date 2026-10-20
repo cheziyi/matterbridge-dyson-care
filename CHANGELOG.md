@@ -4,6 +4,18 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- [devices]: Reach each machine on the local network first, at `<serialNumber>.local`, and through the Dyson cloud when it does not answer there, with dyson-control 0.8.1. The password of each machine's broker comes from the machine list of the account and is stored with the device, never shown in the setup page. A device stored by an earlier version gets it at the next read of the machine list, at the start.
+- [setup]: Add a host to the options of a machine, for a network where its own name does not resolve, such as a Docker container: an IP address or a host name. A new host connects the machine again without building it again in Matter.
+- [setup]: Show whether a machine is online on the network or through the Dyson cloud, and say so when it did not answer on the network. The log says which one each connection goes through when it changes.
+
+### Changed
+
+- [deps]: Update dyson-control to 0.8.1, which also signs in an account the Dyson cloud reports with the authentication method `EMAIL_PWD_2FA`.
+
 ## [0.2.0] - 2026-10-20
 
 ### Added

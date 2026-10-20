@@ -11,6 +11,8 @@ import type { AvailableControls, Capabilities, Exposure, ListedMachine, Machine,
 export interface Draft extends Exposure {
   machine: Machine;
   name: string;
+  /** The host the machine is reached at on the LAN, or empty for the name it gives itself. */
+  host: string;
   isNew: boolean;
   capabilities?: Capabilities;
   /** What the plugin says the machine leaves to choose in Options. */

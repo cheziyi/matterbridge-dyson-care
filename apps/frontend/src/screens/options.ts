@@ -368,6 +368,26 @@ function sensorSection(draft: Draft, controls: AvailableControls): HTMLElement {
   );
 }
 
+// Read as it is typed, with no redraw: no other text on the page names the host.
+function connectionSection(draft: Draft): HTMLElement {
+  const ownName = `${draft.machine.serialNumber}.local`;
+  const input = h('input', { type: 'text', id: 'device-host', value: draft.host, placeholder: ownName, maxLength: 253, autocomplete: 'off', spellcheck: false });
+  input.addEventListener('input', () => {
+    draft.host = input.value.trim();
+  });
+  return h(
+    'section',
+    {},
+    h('h2', {}, h('label', { for: 'device-host' }, 'Connection')),
+    h(
+      'p',
+      { class: 'help' },
+      `The plugin reaches the machine on your network first, at ${ownName}, the name it gives itself, and through the Dyson cloud when it does not answer there. Where that name does not resolve, such as in a Docker container or on Linux without Avahi, enter the IP address of the machine, ideally one your router keeps for it. Leave it empty to use its own name.`,
+    ),
+    h('div', { class: 'inline-form' }, input),
+  );
+}
+
 function composedSection(draft: Draft): HTMLElement {
   const main = draft.deviceType === 'airPurifier' ? 'the air purifier' : 'the fan';
   return h(
@@ -411,7 +431,8 @@ export function optionsScreen(): Child[] {
     moreControlsSection(draft, controls),
     sensorSection(draft, controls),
     composedSection(draft),
-    draft.isNew ? null : h('p', { class: 'help' }, 'Changing any of these rebuilds this machine in Matter. Your Matter app may take a moment to show the change.'),
+    connectionSection(draft),
+    draft.isNew ? null : h('p', { class: 'help' }, 'Changing any of these but the connection rebuilds this machine in Matter. Your Matter app may take a moment to show the change.'),
     notice(),
     h('div', { class: 'footer' }, button('Cancel', goHome), button(draft.isNew ? `Add ${draft.name}` : 'Save options', () => void saveDraft(draft), 'primary')),
   ];

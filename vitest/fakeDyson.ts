@@ -16,6 +16,7 @@ import {
   type EnvironmentalCareSensors,
   type EnvironmentalCareState,
   type Filter,
+  type HostType,
 } from 'dyson-control';
 import type { Mock } from 'vitest';
 
@@ -186,6 +187,8 @@ export interface FakeClient extends MachineClient {
   sensors: EnvironmentalCareSensors;
   /** What the accessory gave the client to call it back with. */
   handlers: MachineClientHandlers;
+  /** The broker the client connects through, which a test sets: the cloud's unless given. */
+  hostType: HostType | null;
   connect: Mock<() => Promise<void>>;
   disconnect: Mock<() => Promise<void>>;
   getState: Mock<() => Promise<EnvironmentalCareState>>;
@@ -222,6 +225,7 @@ export function createFakeClient(machine: DysonMachine = purifierCool, state: Pa
   const methods: FakeClient = {
     capabilities: capabilitiesOf(machine),
     handlers: { onState: ignore, onSensors: ignore, onFaults: ignore, onReconnect: ignore, onDisconnect: ignore },
+    hostType: 'remote',
     state: {
       fanPower: true,
       autoMode: false,

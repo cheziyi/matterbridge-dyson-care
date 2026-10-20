@@ -1,6 +1,6 @@
 /**
  * @file src/module.ts
- * @description This file contains the Matterbridge platform for Dyson purifiers, fans, heaters and humidifiers controlled through the Dyson cloud.
+ * @description This file contains the Matterbridge platform for Dyson purifiers, fans, heaters and humidifiers controlled on the LAN and through the Dyson cloud.
  * @author Luca Liguori
  * @contributor Calvin Che
  * @created 2025-06-15
@@ -41,6 +41,7 @@ import {
   type DysonAccountConfig,
   type DysonDeviceConfig,
   type DysonPlatformConfig,
+  getLanHost,
   getUnreadableDevices,
   hasSameExposure,
   hasSameMachine,
@@ -48,6 +49,7 @@ import {
   parseAccountConfig,
   parseDeviceConfigs,
   toDysonMachine,
+  withoutLanPassword,
 } from './config.js';
 import { addReportedSensors, fitToCapabilities, getAvailableControls, hasSameControls, noReportedSensors, type ReportedSensors } from './controls.js';
 import { describeSignInFailure, getErrorMessage, isSignInRequired, type SignInStep, signInRequiredStatus } from './errors.js';
@@ -60,7 +62,7 @@ import { type FoundMachine, getMachineReport, handleSetupRequest, type SetupDevi
 /** How often, in milliseconds, the machine list of the account is read to keep the firmware of each machine up to date. */
 export const machineSyncIntervalInMs = 15 * 60 * 1000;
 
-/** How long, in milliseconds, a call waits for each of the cloud, the broker and the machine. */
+/** How long, in milliseconds, a call waits for each of the cloud, the broker and the machine. A machine whose own broker does not answer on the LAN is reached through the cloud after it. */
 export const machineTimeoutInMs = 10_000;
 
 const requiredMatterbridgeVersion = '3.10.10';
@@ -105,6 +107,8 @@ export class DysonPlatform extends MatterbridgeDynamicPlatform implements SetupP
   /** The devices whose machine is being read, so that a machine that is slow to answer holds up no other. */
   private readonly polling = new Set<DysonAccessory>();
   private machineList: Promise<DysonMachine[]> | undefined;
+  /** The password of the broker of each machine on the LAN, by its serial number, as the machine list of the account last reported it: the setup page never sees it, so a device it saves takes it from here. */
+  private readonly lanPasswords = new Map<string, string>();
   // Changes to the device list run one after the other.
   private changes: Promise<void> = Promise.resolve();
 
@@ -229,8 +233,10 @@ export class DysonPlatform extends MatterbridgeDynamicPlatform implements SetupP
       else if (status !== undefined) state = 'offline';
       const capabilities = accessory?.capabilities ?? this.readCapabilities(device);
       devices.push({
-        ...device,
+        ...withoutLanPassword(device),
         status: state,
+        lanHost: getLanHost(device),
+        hostType: status?.hostType,
         error: status === undefined ? this.startErrors.get(device.serialNumber) : status.lastError,
         capabilities,
         controls: capabilities === undefined ? undefined : getAvailableControls(capabilities),
@@ -331,7 +337,7 @@ export class DysonPlatform extends MatterbridgeDynamicPlatform implements SetupP
     const machines = await this.readMachines(account);
     await this.applyMachines(machines);
     return machines.map((machine) => ({
-      ...machine,
+      ...withoutLanPassword(machine),
       isConfigured: this.devices.some((stored) => stored.serialNumber === machine.serialNumber),
       support: getMachineSupport(machine, account),
     }));
@@ -371,8 +377,11 @@ export class DysonPlatform extends MatterbridgeDynamicPlatform implements SetupP
       await this.sensorStore.write(device, addReportedSensors((await this.sensorStore.read(device)) ?? noReportedSensors, sensors));
       this.probedSensors.delete(device.serialNumber);
     }
-    const capabilities = this.readCapabilities(device);
-    const next = capabilities === undefined ? { ...device } : fitToCapabilities(device, capabilities);
+    // The setup page never sees the password of the broker of the machine on the LAN.
+    const apPasswordHash = this.lanPasswords.get(device.serialNumber) ?? stored?.apPasswordHash;
+    const withPassword: DysonDeviceConfig = apPasswordHash === undefined ? withoutLanPassword(device) : { ...device, apPasswordHash };
+    const capabilities = this.readCapabilities(withPassword);
+    const next = capabilities === undefined ? withPassword : fitToCapabilities(withPassword, capabilities);
     const devices = stored === undefined ? [...this.devices, next] : this.devices.map((candidate) => (candidate === stored ? next : candidate));
     await this.applyDevices(devices);
   }
@@ -461,6 +470,10 @@ export class DysonPlatform extends MatterbridgeDynamicPlatform implements SetupP
     try {
       const machines = await this.machineList;
       this.isAccountRejected = false;
+      for (const { serialNumber, apPasswordHash } of machines) {
+        if (apPasswordHash === undefined) this.lanPasswords.delete(serialNumber);
+        else this.lanPasswords.set(serialNumber, apPasswordHash);
+      }
       return machines;
     } catch (error) {
       if (isSignInRequired(error)) this.rejectAccount();
@@ -507,8 +520,10 @@ export class DysonPlatform extends MatterbridgeDynamicPlatform implements SetupP
     }
   }
 
+  // The machine's own broker on the LAN first, and the cloud's when it does not answer.
   private createClientFactory(device: DysonDeviceConfig, account: DysonAccountConfig): MachineClientFactory {
-    return (handlers) => new EnvironmentalCareClient(toDysonMachine(device), { account, timeoutInMs: machineTimeoutInMs, ...handlers });
+    const host = getLanHost(device);
+    return (handlers) => new EnvironmentalCareClient(toDysonMachine(device), { account, host, timeoutInMs: machineTimeoutInMs, ...handlers });
   }
 
   private async applyMachines(machines: DysonMachine[]): Promise<void> {

@@ -29,6 +29,7 @@ import type {
   EnvironmentalCareState,
   FanSpeed,
   Filter,
+  HostType,
   TiltAngle,
 } from 'dyson-control';
 import type { MatterbridgeEndpoint } from 'matterbridge';
@@ -64,8 +65,14 @@ const unreachableAfterFailures = 2;
 /** How long, in milliseconds, the faults of a machine are kept before a poll asks for them again: they change rarely, and the machine also sends them as they change. */
 const faultsIntervalInMs = 15 * 60 * 1000;
 
+/** The broker a connection goes through, as the log names it. */
+const hostTypeNames: Readonly<Record<HostType, string>> = { local: 'the LAN', remote: 'the Dyson cloud' };
+
 /** What a machine's client takes and gives: the part of `EnvironmentalCareClient` the accessory calls. */
-export type MachineClient = Pick<EnvironmentalCareClient, 'capabilities' | 'connect' | 'disconnect' | 'getState' | 'setState' | 'getSensors' | 'getFaults' | 'resetFilterLife'>;
+export type MachineClient = Pick<
+  EnvironmentalCareClient,
+  'capabilities' | 'hostType' | 'connect' | 'disconnect' | 'getState' | 'setState' | 'getSensors' | 'getFaults' | 'resetFilterLife'
+>;
 
 /** What the client of a machine calls the accessory back with. */
 export interface MachineClientHandlers {
@@ -94,8 +101,10 @@ export interface DysonAccessoryOptions {
 /** What the setup page shows about a running device. */
 export interface DysonAccessoryStatus {
   isReachable: boolean;
-  /** Whether the first read of a new client has not finished yet, while it connects through the cloud. */
+  /** Whether the first read of a new client has not finished yet, while it connects. */
   isConnecting: boolean;
+  /** The broker the open connection goes through: the machine's own on the LAN, or the cloud's. Undefined while none is open. */
+  hostType?: HostType;
   lastError?: string;
   /** The status of the last error, such as 401 for credentials the cloud no longer accepts. */
   lastErrorStatus?: number;
@@ -186,8 +195,10 @@ export class DysonAccessory implements AccessoryEndpoints {
   private faultsReadAt: number | undefined;
   private isConnected = false;
   private isReachable = false;
-  /** Until the first read of the client ends, which takes the cloud a moment to connect. */
+  /** Until the first read of the client ends, which takes a moment to connect. */
   private isConnecting = true;
+  /** The broker the log last named the connection through, so that a connection is logged when it goes through another. */
+  private loggedHostType: HostType | null = null;
   private lastError: string | undefined;
   private lastErrorStatus: number | undefined;
   private failureCount = 0;
@@ -356,6 +367,7 @@ export class DysonAccessory implements AccessoryEndpoints {
     return {
       isReachable: this.isReachable,
       isConnecting: this.isConnecting,
+      hostType: this.client.hostType ?? undefined,
       lastError: this.lastError,
       lastErrorStatus: this.lastErrorStatus,
       state: this.state,
@@ -488,7 +500,7 @@ export class DysonAccessory implements AccessoryEndpoints {
       },
       onReconnect: () => {
         if (this.client !== client) return;
-        this.log.info(`"${this.name}" connected again`);
+        this.log.info(`"${this.name}" connected again${this.describeHostType()}`);
         void this.refresh();
       },
       onDisconnect: () => {
@@ -804,6 +816,14 @@ export class DysonAccessory implements AccessoryEndpoints {
   private async connect(): Promise<void> {
     await this.client.connect();
     this.isConnected = true;
+    if (this.client.hostType !== this.loggedHostType) this.log.info(`"${this.name}" connected${this.describeHostType()}`);
+  }
+
+  // Such as " through the LAN": the broker the open connection goes through, which the log names from then on.
+  private describeHostType(): string {
+    const { hostType } = this.client;
+    this.loggedHostType = hostType;
+    return hostType === null ? '' : ` through ${hostTypeNames[hostType]}`;
   }
 
   /**
@@ -923,7 +943,7 @@ export class DysonAccessory implements AccessoryEndpoints {
   private handleDisconnect(): void {
     this.isConnected = false;
     if (this.isDisposed || this.isSuspended) return;
-    this.log.warn(`"${this.name}" lost its connection to the Dyson cloud, which is tried again at the next poll`);
+    this.log.warn(`"${this.name}" lost its connection, which is tried again at the next poll`);
     void this.enqueue(async () => this.setReachableQuietly(false));
   }
 

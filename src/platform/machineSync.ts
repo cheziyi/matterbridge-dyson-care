@@ -29,9 +29,9 @@ import { type DysonDeviceConfig, hasSameMachine } from '../config.js';
 /**
  * Work out what the machine list of the account changes about a stored device
  *
- * A device is matched by the serial number of its machine, and takes the variant, the firmware and the room name the
- * cloud reports for it now. It keeps its own name: the room name is that of the MyDyson app, which several machines can
- * share.
+ * A device is matched by the serial number of its machine, and takes the variant, the firmware, the room name and the
+ * password of its broker on the LAN the cloud reports for it now. It keeps its own name: the room name is that of the
+ * MyDyson app, which several machines can share. It keeps its host too, which the setup page gives.
  *
  * Edge cases:
  *  - a machine of another type than the stored one -> undefined, with a warning: its state is held another way
@@ -63,6 +63,7 @@ export function getMachineUpdate(stored: DysonDeviceConfig, machines: readonly D
     productName: match.productName,
     firmwareVersion: match.firmwareVersion,
     firmwareCapabilities: match.firmwareCapabilities === undefined ? undefined : [...match.firmwareCapabilities],
+    apPasswordHash: match.apPasswordHash,
   };
   return hasSameMachine(stored, updated) && stored.roomName === updated.roomName ? undefined : updated;
 }

@@ -365,6 +365,35 @@ describe('DysonPlatform', () => {
     await settle();
   });
 
+  it('should reach a machine on the LAN first once the machine list gives the password of its broker, which the setup page never sees', async () => {
+    const device = platform.getDeviceByName('Living Room');
+    const lanHost = `${purifierCool.serialNumber}.local`;
+    const clientOptions = (): Record<string, unknown> => ({ ...(cloud.options.get(purifierCool.serialNumber) as object) });
+    listed = [{ ...purifierCool, name: 'Bedroom', apPasswordHash: 'hash-1' }, hotCool];
+    await platform.syncMachines();
+    expect(platform.config.devices).toEqual(expect.arrayContaining([expect.objectContaining({ name: 'Living Room', apPasswordHash: 'hash-1' })]));
+    // Connected anew, without building the device again.
+    expect(clientOptions()).toMatchObject({ account, host: lanHost, timeoutInMs: machineTimeoutInMs });
+    expect(platform.getDeviceByName('Living Room')).toBe(device);
+    const [shown] = (await platform.getSetupState()).devices;
+    expect(shown).toMatchObject({ name: 'Living Room', lanHost });
+    expect(shown).not.toHaveProperty('apPasswordHash');
+    expect((await platform.listMachines())[0]).not.toHaveProperty('apPasswordHash');
+    // The setup page saves a host without the password, which the device keeps.
+    await platform.saveDevice({ ...livingRoom, roomName: 'Bedroom', host: '192.168.1.20' });
+    expect(platform.config.devices).toEqual(expect.arrayContaining([expect.objectContaining({ host: '192.168.1.20', apPasswordHash: 'hash-1' })]));
+    expect(clientOptions()).toMatchObject({ host: '192.168.1.20' });
+    expect(platform.getDeviceByName('Living Room')).toBe(device);
+    // Without the password the machine is reached through the cloud alone.
+    listed = [{ ...purifierCool, name: 'Bedroom' }, hotCool];
+    await platform.syncMachines();
+    expect(clientOptions().host).toBeUndefined();
+    expect((await platform.getSetupState()).devices[0].lanHost).toBeUndefined();
+    await platform.saveDevice({ ...livingRoom, roomName: 'Bedroom' });
+    expect(platform.config.devices).toEqual(expect.arrayContaining([{ ...livingRoom, roomName: 'Bedroom' }]));
+    await settle();
+  });
+
   it('should build a device again under the name it is given in the setup page', async () => {
     await platform.saveDevice({ ...livingRoom, name: 'Lounge' });
     expect(platform.getDeviceByName('Lounge')).toBeDefined();

@@ -178,6 +178,13 @@ export interface DysonDeviceConfig extends DysonDeviceExposure {
   productName?: string;
   firmwareVersion?: string;
   firmwareCapabilities?: string[];
+  /**
+   * The host name or IPv4 address the machine is reached at on the LAN, given in the setup page for a network where its
+   * own name does not resolve. Left out, it is `<serialNumber>.local`: see `getLanHost`.
+   */
+  host?: string;
+  /** The password of the machine's own broker on the LAN, as the machine list of the account reports it. The setup page never sees it. */
+  apPasswordHash?: string;
 }
 
 /** The account the machines are reached through, as `login` resolved with it, and the address it was logged in with. */
@@ -243,7 +250,10 @@ export const defaultExposure: Readonly<DysonDeviceExposure> = {
 
 const serialNumberPattern = /^[A-Za-z0-9][A-Za-z0-9-]{0,31}$/;
 const countryPattern = /^[A-Z]{2}$/;
+// Dot-separated labels of letters, digits and inner dashes, which an IPv4 address is too.
+const hostPattern = /^(?=.{1,253}$)[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*$/;
 const maxFieldLength = 128;
+const maxPasswordLength = 256;
 
 /**
  * Check whether a value is one of the members of a literal list
@@ -278,6 +288,44 @@ export function normalizeDeviceName(value: unknown): string | undefined {
   if (typeof value !== 'string') return undefined;
   const name = value.trim();
   return name.length > 0 && name.length <= maxDeviceNameLength ? name : undefined;
+}
+
+/**
+ * Normalize the host a machine is reached at on the LAN
+ *
+ * @param {unknown} value The value to normalize.
+ * @returns {string | undefined} The trimmed host name or IPv4 address, or undefined when it is empty or not one.
+ */
+export function normalizeHost(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  const host = value.trim();
+  return hostPattern.test(host) ? host : undefined;
+}
+
+/**
+ * Tell where a stored machine is reached on the LAN
+ *
+ * Its own broker there takes the password the machine list of the account reports, so a machine stored without it is
+ * reached through the cloud alone until the list is read again.
+ *
+ * @param {DysonDeviceConfig} device The stored device.
+ * @returns {string | undefined} The host given in the setup page, else `<serialNumber>.local`, the name the machine gives itself over mDNS. Undefined without the password.
+ */
+export function getLanHost(device: DysonDeviceConfig): string | undefined {
+  if (device.apPasswordHash === undefined) return undefined;
+  return device.host ?? `${device.serialNumber}.local`;
+}
+
+/**
+ * Copy a machine or a device without the password of its broker on the LAN, which the setup page never sees
+ *
+ * @param {T} value The machine or the device.
+ * @returns {Omit<T, 'apPasswordHash'>} A copy without `apPasswordHash`.
+ */
+export function withoutLanPassword<T extends { apPasswordHash?: string }>(value: T): Omit<T, 'apPasswordHash'> {
+  const copy = { ...value };
+  delete copy.apPasswordHash;
+  return copy;
 }
 
 /**
@@ -339,6 +387,7 @@ export function parseAccountConfig(value: unknown): DysonAccountConfig | undefin
  * Edge cases:
  *  - a setting that is stored but not valid falls back like one that is missing, and is reported
  *  - a firmware capability that is not a string is dropped
+ *  - a host that is stored but not valid is dropped and reported: the machine is reached at its own name
  *
  * @param {unknown} value The stored value.
  * @param {(message: string) => void} [report] Called once for each setting that is stored but not valid.
@@ -395,6 +444,10 @@ export function parseDeviceConfig(value: unknown, report?: (message: string) => 
     if (text !== undefined) device[key] = text;
   }
   if (Array.isArray(raw.firmwareCapabilities)) device.firmwareCapabilities = raw.firmwareCapabilities.filter((capability) => isValidString(capability, 1, maxFieldLength));
+  const host = normalizeHost(raw.host);
+  if (host !== undefined) device.host = host;
+  else if (raw.host !== undefined) report?.(`"${name}" has the host ${JSON.stringify(raw.host)}, which is not valid: it is reached at ${raw.serialNumber}.local instead`);
+  if (isValidString(raw.apPasswordHash, 1, maxPasswordLength)) device.apPasswordHash = raw.apPasswordHash;
   return device;
 }
 
@@ -467,6 +520,7 @@ export function toDysonMachine(config: DysonDeviceConfig): DysonMachine {
   if (config.productName !== undefined) machine.productName = config.productName;
   if (config.firmwareVersion !== undefined) machine.firmwareVersion = config.firmwareVersion;
   if (config.firmwareCapabilities !== undefined) machine.firmwareCapabilities = [...config.firmwareCapabilities];
+  if (config.apPasswordHash !== undefined) machine.apPasswordHash = config.apPasswordHash;
   return machine;
 }
 
@@ -486,7 +540,9 @@ export function hasSameMachine(left: DysonDeviceConfig, right: DysonDeviceConfig
     left.model === right.model &&
     left.productName === right.productName &&
     left.firmwareVersion === right.firmwareVersion &&
-    (left.firmwareCapabilities ?? []).join() === (right.firmwareCapabilities ?? []).join()
+    (left.firmwareCapabilities ?? []).join() === (right.firmwareCapabilities ?? []).join() &&
+    left.host === right.host &&
+    left.apPasswordHash === right.apPasswordHash
   );
 }
 
