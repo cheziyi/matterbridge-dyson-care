@@ -368,23 +368,57 @@ function sensorSection(draft: Draft, controls: AvailableControls): HTMLElement {
   );
 }
 
-// Read as it is typed, with no redraw: no other text on the page names the host.
-function connectionSection(draft: Draft): HTMLElement {
-  const ownName = `${draft.machine.serialNumber}.local`;
-  const input = h('input', { type: 'text', id: 'device-host', value: draft.host, placeholder: ownName, maxLength: 253, autocomplete: 'off', spellcheck: false });
+// What the search of the Connect step found, while it ran.
+function searchNote(draft: Draft): string {
+  const isFound = draft.probe?.isFoundOnLan;
+  if (isFound === undefined) return '';
+  return isFound ? ' It answered on your network just now.' : ' It was not found on your network just now.';
+}
+
+// The host is read as it is typed, with no redraw: no other text on the page names it.
+function hostField(draft: Draft): HTMLElement {
+  const input = h('input', { type: 'text', id: 'device-host', value: draft.host, placeholder: 'Found on your network', maxLength: 253, autocomplete: 'off', spellcheck: false });
   input.addEventListener('input', () => {
     draft.host = input.value.trim();
   });
   return h(
-    'section',
-    {},
-    h('h2', {}, h('label', { for: 'device-host' }, 'Connection')),
+    'div',
+    { class: 'field' },
+    h('label', { for: 'device-host' }, 'Host'),
     h(
       'p',
       { class: 'help' },
-      `The plugin reaches the machine on your network first, at ${ownName}, the name it gives itself, and through the Dyson cloud when it does not answer there. Where that name does not resolve, such as in a Docker container or on Linux without Avahi, enter the IP address of the machine, ideally one your router keeps for it. Leave it empty to use its own name.`,
+      'Where the search does not reach the machine, such as in a Docker container without host networking, enter its IP address, ideally one your router keeps for it. Leave it empty to search.',
     ),
     h('div', { class: 'inline-form' }, input),
+  );
+}
+
+function connectionSection(draft: Draft): HTMLElement {
+  const pick = (value: 'lan' | 'cloud'): void => {
+    draft.isCloudOnly = value === 'cloud';
+    render();
+  };
+  const current = draft.isCloudOnly ? 'cloud' : 'lan';
+  return h(
+    'section',
+    {},
+    h('h2', { id: 'connection-title' }, 'Connection'),
+    h('p', { class: 'help' }, `How the plugin reaches the machine.${searchNote(draft)}`),
+    h(
+      'div',
+      { 'class': 'choices', 'role': 'radiogroup', 'aria-labelledby': 'connection-title' },
+      radio(
+        'connection',
+        'lan',
+        current,
+        'Your network, then the Dyson cloud',
+        'The plugin finds the machine on your network by the service it announces there, and reaches it through the Dyson cloud when it does not answer. It searches again on each connection, so it follows the machine to a new IP address.',
+        pick,
+      ),
+      radio('connection', 'cloud', current, 'The Dyson cloud only', 'For a machine that is not on the network of Matterbridge: each connection skips the search of up to 3 seconds.', pick),
+    ),
+    draft.isCloudOnly ? null : hostField(draft),
   );
 }
 

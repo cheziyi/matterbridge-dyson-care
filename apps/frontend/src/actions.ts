@@ -186,7 +186,7 @@ async function enterConnect(): Promise<void> {
 }
 
 export async function check(draft: Draft): Promise<void> {
-  const reply = await busy(`Connecting to ${draftLabel(draft)} through the Dyson cloud…`, async () => api('POST probe', { machine: draft.machine }));
+  const reply = await busy(`Connecting to ${draftLabel(draft)} through the Dyson cloud, and looking for it on your network…`, async () => api('POST probe', { machine: draft.machine }));
   if (!reply.ok) {
     view.error = reply.error;
     render();
@@ -201,6 +201,8 @@ export async function check(draft: Draft): Promise<void> {
     draft.reportedSensors = reply.result.reportedSensors;
     // A new machine starts with the Apple Home preset, once what it can do is known.
     if (draft.isNew && isFirstReading && draft.controls !== undefined) Object.assign(draft, presetExposure('apple', draft.controls));
+    // A new machine the search did not find starts on the cloud alone, so that each connection skips the search.
+    if (draft.isNew && isFirstReading && reply.result.isFoundOnLan === false) draft.isCloudOnly = true;
     view.screen = 'options';
   }
   render();
@@ -221,8 +223,9 @@ export async function saveDraft(draft: Draft): Promise<void> {
     return;
   }
   const { machine } = draft;
-  // An empty host is left out: the plugin reaches the machine at the name it gives itself.
-  const device = { ...machine, name, roomName: machine.name, host: draft.host === '' ? undefined : draft.host, ...pickExposure(draft) };
+  // An empty host is left out: the plugin searches the LAN for the machine. A machine on the cloud alone needs none.
+  const host = draft.isCloudOnly || draft.host === '' ? undefined : draft.host;
+  const device = { ...machine, name, roomName: machine.name, host, isCloudOnly: draft.isCloudOnly || undefined, ...pickExposure(draft) };
   const reply = await busy(`Saving ${name}…`, async () => api('POST device', { device }));
   if (!reply.ok) {
     view.error = reply.error;

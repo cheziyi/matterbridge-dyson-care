@@ -472,7 +472,6 @@ input[type='checkbox'] {
   flex-direction: column;
   gap: 0.5rem;
   padding: 0.9rem 0;
-  border-bottom: 1px solid var(--line);
 }
 
 .actions {

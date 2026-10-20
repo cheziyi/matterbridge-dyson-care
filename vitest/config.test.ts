@@ -10,8 +10,8 @@ import {
   defaultExposure,
   getUnreadableDevices,
   hasSameExposure,
-  getLanHost,
   hasSameMachine,
+  isTriedOnLan,
   isValidSerialNumber,
   normalizeDeviceName,
   normalizeHost,
@@ -52,11 +52,11 @@ describe('config', () => {
     expect(normalizeHost(42)).toBeUndefined();
   });
 
-  it('should reach a machine on the LAN at its own name or the host given, once the cloud gave the password of its broker', () => {
+  it('should try a machine on the LAN once the cloud gave the password of its broker, unless it is set to the cloud alone', () => {
     const device = createDeviceConfig(purifierCool, { apPasswordHash: 'hash-1' });
-    expect(getLanHost(device)).toBe('NK6-EU-MHA0001A.local');
-    expect(getLanHost({ ...device, host: '192.168.1.20' })).toBe('192.168.1.20');
-    expect(getLanHost(createDeviceConfig(purifierCool, { host: '192.168.1.20' }))).toBeUndefined();
+    expect(isTriedOnLan(device)).toBe(true);
+    expect(isTriedOnLan({ ...device, isCloudOnly: true })).toBe(false);
+    expect(isTriedOnLan(createDeviceConfig(purifierCool, { host: '192.168.1.20' }))).toBe(false);
   });
 
   it('should copy a device without the password of its broker on the LAN', () => {
@@ -112,7 +112,16 @@ describe('config', () => {
     const report = vi.fn();
     const device = parseDeviceConfig({ ...stored, host: 'not a host', apPasswordHash: '' }, report);
     expect(device).toEqual(createDeviceConfig(purifierCool));
-    expect(report).toHaveBeenCalledExactlyOnceWith('"Living Room" has the host "not a host", which is not valid: it is reached at NK6-EU-MHA0001A.local instead');
+    expect(report).toHaveBeenCalledExactlyOnceWith('"Living Room" has the host "not a host", which is not valid: it is searched for on the LAN instead');
+  });
+
+  it('should read a device set to the cloud alone, and report a cloud-only setting that is not a boolean', () => {
+    const stored = createDeviceConfig(purifierCool, { isCloudOnly: true });
+    expect(parseDeviceConfig(stored)).toEqual(stored);
+    expect(parseDeviceConfig({ ...stored, isCloudOnly: false })).toEqual(createDeviceConfig(purifierCool));
+    const report = vi.fn();
+    expect(parseDeviceConfig({ ...stored, isCloudOnly: 'yes' }, report)).toEqual(createDeviceConfig(purifierCool));
+    expect(report).toHaveBeenCalledExactlyOnceWith('"Living Room" has the isCloudOnly "yes", which is not valid: it is tried on the LAN first instead');
   });
 
   it('should refuse a device without a valid name, serial number or type', () => {
@@ -159,6 +168,7 @@ describe('config', () => {
     expect(hasSameMachine({ ...device, firmwareCapabilities: undefined }, { ...device, firmwareCapabilities: [] })).toBe(true);
     expect(hasSameMachine({ ...device, firmwareCapabilities: [] }, { ...device, firmwareCapabilities: undefined })).toBe(true);
     expect(hasSameMachine(device, { ...device, host: '192.168.1.20' })).toBe(false);
+    expect(hasSameMachine(device, { ...device, isCloudOnly: true })).toBe(false);
     expect(hasSameMachine(device, { ...device, apPasswordHash: 'hash-1' })).toBe(false);
     expect(hasSameExposure(device, { ...device, firmwareVersion: '1' })).toBe(true);
     expect(hasSameExposure(device, { ...device, name: 'Elsewhere' })).toBe(false);

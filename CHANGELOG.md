@@ -4,6 +4,18 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2026-10-20
+
+### Added
+
+- [setup]: Set a machine to the Dyson cloud only in the Connection of its options, so that each connection skips the search of the network, which takes up to 3 seconds when the machine is not there. The Connect step searches the network for a new machine beside its check through the cloud, and starts one it does not find on the cloud only.
+
+### Changed
+
+- [devices]: Find each machine on the local network by the service it announces over mDNS, with dyson-control 0.8.2, in place of its name `<serialNumber>.local`. The search runs again on each connection, so the plugin follows a machine its router gives a new IP address, and it needs no Avahi on Linux. A machine the search does not find in 3 seconds is reached through the Dyson cloud. A host given in the setup page is still used in place of the search.
+- [setup]: The Connection field of the options leaves the host empty to search the network, and a machine online through the cloud alone says that it was not found on the network, or did not answer at the host given.
+- [deps]: Update dyson-control to 0.8.2.
+
 ## [0.3.0] - 2026-10-20
 
 ### Added

@@ -6,7 +6,7 @@
 
 import { DysonError } from 'dyson-control';
 
-import { getMachineSupport, probeMachine } from '../../src/setup/probe.js';
+import { getMachineSupport, probeMachine, searchLan } from '../../src/setup/probe.js';
 import { account, coolFan, createSensors, purifierCool } from '../fakeDyson.js';
 
 // The network calls of a client, which the tests answer. Its constructor and its capabilities are the real ones.
@@ -81,6 +81,22 @@ describe('probe', () => {
       machine: { ...purifierCool, type: '999' },
       message: '999 is no known type of environmental care machine',
     });
+    expect(calls.connect).not.toHaveBeenCalled();
+  });
+
+  it('should tell whether a search of the LAN finds a machine whose broker opens, and disconnect', async () => {
+    const machine = { ...purifierCool, apPasswordHash: 'hash-1' };
+    expect(await searchLan(machine)).toBe(true);
+    expect(calls.disconnect).toHaveBeenCalledTimes(1);
+    calls.connect.mockRejectedValueOnce(new DysonError('No machine answered the search', 504));
+    // A failed disconnect does not hide the answer.
+    calls.disconnect.mockRejectedValueOnce(new Error('Not connected'));
+    expect(await searchLan(machine)).toBe(false);
+  });
+
+  it('should not search the LAN for a machine the client cannot be built for', async () => {
+    expect(await searchLan(purifierCool)).toBe(false);
+    expect(await searchLan({ ...purifierCool, type: '999', apPasswordHash: 'hash-1' })).toBe(false);
     expect(calls.connect).not.toHaveBeenCalled();
   });
 });

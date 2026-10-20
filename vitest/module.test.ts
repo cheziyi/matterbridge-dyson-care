@@ -367,16 +367,16 @@ describe('DysonPlatform', () => {
 
   it('should reach a machine on the LAN first once the machine list gives the password of its broker, which the setup page never sees', async () => {
     const device = platform.getDeviceByName('Living Room');
-    const lanHost = `${purifierCool.serialNumber}.local`;
     const clientOptions = (): Record<string, unknown> => ({ ...(cloud.options.get(purifierCool.serialNumber) as object) });
     listed = [{ ...purifierCool, name: 'Bedroom', apPasswordHash: 'hash-1' }, hotCool];
     await platform.syncMachines();
     expect(platform.config.devices).toEqual(expect.arrayContaining([expect.objectContaining({ name: 'Living Room', apPasswordHash: 'hash-1' })]));
-    // Connected anew, without building the device again.
-    expect(clientOptions()).toMatchObject({ account, host: lanHost, timeoutInMs: machineTimeoutInMs });
+    // Connected anew, without building the device again, and without a host: dyson-control searches the LAN for it.
+    expect(clientOptions()).toMatchObject({ account, timeoutInMs: machineTimeoutInMs });
+    expect(clientOptions().host).toBeUndefined();
     expect(platform.getDeviceByName('Living Room')).toBe(device);
     const [shown] = (await platform.getSetupState()).devices;
-    expect(shown).toMatchObject({ name: 'Living Room', lanHost });
+    expect(shown).toMatchObject({ name: 'Living Room', isTriedOnLan: true });
     expect(shown).not.toHaveProperty('apPasswordHash');
     expect((await platform.listMachines())[0]).not.toHaveProperty('apPasswordHash');
     // The setup page saves a host without the password, which the device keeps.
@@ -384,11 +384,24 @@ describe('DysonPlatform', () => {
     expect(platform.config.devices).toEqual(expect.arrayContaining([expect.objectContaining({ host: '192.168.1.20', apPasswordHash: 'hash-1' })]));
     expect(clientOptions()).toMatchObject({ host: '192.168.1.20' });
     expect(platform.getDeviceByName('Living Room')).toBe(device);
+    // The check of the setup page searches the LAN beside the cloud, with the password the page never sees.
+    expect(await platform.probe(purifierCool)).toMatchObject({ status: 'ready', isFoundOnLan: true });
+    cloud.unitFor(purifierCool.serialNumber).connect.mockResolvedValueOnce(undefined).mockRejectedValueOnce(new DysonError('No machine answered the search', 504));
+    expect(await platform.probe(purifierCool)).toMatchObject({ status: 'ready', isFoundOnLan: false });
+    // A machine set to the cloud alone is not searched for, and changes over without building the device again.
+    await platform.saveDevice({ ...livingRoom, roomName: 'Bedroom', isCloudOnly: true });
+    expect(clientOptions()).toMatchObject({ account, local: false });
+    expect(clientOptions().host).toBeUndefined();
+    expect(platform.getDeviceByName('Living Room')).toBe(device);
+    expect((await platform.getSetupState()).devices[0]).toMatchObject({ isCloudOnly: true, isTriedOnLan: false });
+    await platform.saveDevice({ ...livingRoom, roomName: 'Bedroom' });
+    expect(clientOptions().local).toBeUndefined();
     // Without the password the machine is reached through the cloud alone.
     listed = [{ ...purifierCool, name: 'Bedroom' }, hotCool];
     await platform.syncMachines();
+    expect(clientOptions()).toMatchObject({ local: false });
     expect(clientOptions().host).toBeUndefined();
-    expect((await platform.getSetupState()).devices[0].lanHost).toBeUndefined();
+    expect((await platform.getSetupState()).devices[0].isTriedOnLan).toBe(false);
     await platform.saveDevice({ ...livingRoom, roomName: 'Bedroom' });
     expect(platform.config.devices).toEqual(expect.arrayContaining([{ ...livingRoom, roomName: 'Bedroom' }]));
     await settle();
