@@ -47,13 +47,14 @@ import {
   createHumidityEndpoint,
   createMainEndpoint,
   createModeSelectEndpoint,
+  createOscillationFanEndpoint,
   createSwitchEndpoint,
   createTemperatureEndpoint,
   createThermostatEndpoint,
   type EndpointIdentity,
 } from './endpoints.js';
 import { type AccessoryLayout, getAccessoryLayout } from './layout.js';
-import { type AccessoryEndpoints, applySensors, applyState, readFanRequest } from './matterState.js';
+import { type AccessoryEndpoints, applySensors, applyState, type OscillationFanRequest, readFanRequest } from './matterState.js';
 import { PendingCommand } from './pendingCommand.js';
 
 /** How long, in milliseconds, the writes of a controller are collected before they are sent as one command. */
@@ -145,7 +146,7 @@ function ignore(): void {
 /**
  * One Dyson machine and the Matter endpoints that stand for it: an air purifier or a fan with its fan control and, as
  * they are exposed, a thermostat for its heating, on/off switches and mode selects for what Matter has no place for or
- * the app shows no control for, and sensors for its readings. Each is a device of its own in Matter, or a part of the
+ * the app shows no control for, a fan for its oscillation, and sensors for its readings. Each is a device of its own in Matter, or a part of the
  * main one when the device is exposed as a composed one.
  *
  * The endpoints are built in `endpoints.ts`, what the controllers ask for is collected in `pendingCommand.ts` and what
@@ -159,6 +160,7 @@ export class DysonAccessory implements AccessoryEndpoints {
   readonly oscillationSwitch: MatterbridgeEndpoint | undefined;
   readonly oscillationSelect: MatterbridgeEndpoint | undefined;
   readonly tiltSelect: MatterbridgeEndpoint | undefined;
+  readonly oscillationFan: MatterbridgeEndpoint | undefined;
   readonly findAndFollowSwitch: MatterbridgeEndpoint | undefined;
   readonly findAndFollowSelect: MatterbridgeEndpoint | undefined;
   readonly settingEndpoints = new Map<SettingControlKey, MatterbridgeEndpoint>();
@@ -252,6 +254,7 @@ export class DysonAccessory implements AccessoryEndpoints {
         this.scheduleCommand(`tilt ${angle}`);
       });
     }
+    if (layout.oscillationFanPositions.length > 0) this.oscillationFan = this.createOscillationFan();
     if (layout.hasFindAndFollowSwitch) {
       this.findAndFollowSwitch = this.createSwitch('find-and-follow', 'P', 'Find and Follow', (isOn) =>
         this.queueControl({ findAndFollowMode: isOn ? 'on' : 'off' }, `find and follow ${isOn ? 'on' : 'off'}`),
@@ -317,6 +320,7 @@ export class DysonAccessory implements AccessoryEndpoints {
       this.oscillationSwitch,
       this.oscillationSelect,
       this.tiltSelect,
+      this.oscillationFan,
       this.findAndFollowSwitch,
       this.findAndFollowSelect,
       this.nightModeSwitch,
@@ -551,6 +555,24 @@ export class DysonAccessory implements AccessoryEndpoints {
         }),
       );
     }
+    return endpoint;
+  }
+
+  private createOscillationFan(): MatterbridgeEndpoint {
+    const endpoint = createOscillationFanEndpoint(this.identity, this.layout, this.parent);
+    this.listen(endpoint, () =>
+      endpoint.subscribeAttribute(OnOff, 'onOff', (isOn: boolean, _wasOn: boolean, context: ActionContext) => {
+        // The on/off is the power of the machine: nothing is sent, and the read that follows puts it back.
+        if (isControllerWrite(context)) this.scheduleCommand(`oscillation fan ${isOn ? 'on' : 'off'}, which follows the power`);
+      }),
+    );
+    const onFanWrite = (_value: unknown, _previous: unknown, context: ActionContext): void => {
+      if (!isControllerWrite(context)) return;
+      this.pending.requestOscillationFan();
+      this.scheduleCommand('oscillation fan speed');
+    };
+    this.listen(endpoint, () => endpoint.subscribeAttribute(FanControl, 'fanMode', onFanWrite));
+    this.listen(endpoint, () => endpoint.subscribeAttribute(FanControl, 'percentSetting', onFanWrite));
     return endpoint;
   }
 
@@ -797,7 +819,10 @@ export class DysonAccessory implements AccessoryEndpoints {
       isTilt: this.layout.isTilt,
       lastTiltAngle: this.lastTiltAngle,
     };
-    const control = this.pending.take(machine, () => readFanRequest(this.endpoint, this.layout.fanPositions));
+    const { oscillationFan } = this;
+    const readOscillationFan =
+      oscillationFan === undefined ? undefined : (): OscillationFanRequest | undefined => readFanRequest(oscillationFan, this.layout.oscillationFanPositions);
+    const control = this.pending.take(machine, () => readFanRequest(this.endpoint, this.layout.fanPositions), readOscillationFan);
     if (Object.keys(control).length > 0) {
       try {
         if (!this.isConnected) await this.connect();

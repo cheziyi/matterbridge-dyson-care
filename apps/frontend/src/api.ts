@@ -14,6 +14,7 @@ import type { FoundMachine, SetupDevice, SetupReplies, SetupReply } from '../../
 // The types are the plugin's own, so the page and the plugin cannot drift apart. They are only types: nothing of the
 // plugin is loaded in the browser. The page has its own words for some of them.
 export type { AvailableControls, OscillationAngleChoice, ReportedSensors } from '../../../src/controls.js';
+export type { OscillationFanAngle } from '../../../src/mapping.js';
 export type { ProbeResult } from '../../../src/setup/probe.js';
 export type { MachineReport, SetupState } from '../../../src/setup/setupApi.js';
 

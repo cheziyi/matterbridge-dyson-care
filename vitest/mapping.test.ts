@@ -22,6 +22,7 @@ import {
   indexToLevel,
   isOscillating,
   isOscillationSweep,
+  isTiltFanAngle,
   oscillationSelectChoices,
   percentToFanStep,
   toFilterCondition,
@@ -51,6 +52,21 @@ describe('mapping', () => {
   it('should pick the fan mode sequence with or without auto', () => {
     expect(getFanModeSequence(true)).toBe(FanControl.FanModeSequence.OffLowMedHighAuto);
     expect(getFanModeSequence(false)).toBe(FanControl.FanModeSequence.OffLowMedHigh);
+  });
+
+  it('should pick a fan mode sequence for the fewer speeds of an oscillation fan', () => {
+    expect(getFanModeSequence(false, 3)).toBe(FanControl.FanModeSequence.OffLowMedHigh);
+    expect(getFanModeSequence(true, 2)).toBe(FanControl.FanModeSequence.OffLowHighAuto);
+    expect(getFanModeSequence(false, 2)).toBe(FanControl.FanModeSequence.OffLowHigh);
+    expect(getFanModeSequence(true, 1)).toBe(FanControl.FanModeSequence.OffHighAuto);
+    expect(getFanModeSequence(false, 1)).toBe(FanControl.FanModeSequence.OffHigh);
+  });
+
+  it('should tell the angles a machine tilts to from the ones it sweeps', () => {
+    expect(isTiltFanAngle(0)).toBe(true);
+    expect(isTiltFanAngle(25)).toBe(true);
+    expect(isTiltFanAngle(50)).toBe(true);
+    expect(isTiltFanAngle(45)).toBe(false);
   });
 
   it('should list the modes of a select in the order of its choices, numbered by their place', () => {

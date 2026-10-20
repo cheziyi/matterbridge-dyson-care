@@ -25,7 +25,7 @@ import type { EnvironmentalCareCapabilities, FindAndFollowMode, TiltAngle } from
 
 import type { DeviceTypeOption, DysonDeviceConfig, SettingControlKey } from '../config.js';
 import { getAvailableControls, type ReportedSensors } from '../controls.js';
-import { type FanPosition, fanSteps, type HumiditySelectValue, humidityTargets, type OscillationSelectValue } from '../mapping.js';
+import { type FanPosition, fanSteps, type HumiditySelectValue, humidityTargets, type OscillationFanPosition, type OscillationSelectValue } from '../mapping.js';
 
 /** The pollutants an air quality sensor shows, each once the machine has given it. */
 export interface PollutantLayout {
@@ -56,8 +56,12 @@ export interface AccessoryLayout {
   hasOscillationSwitch: boolean;
   /** Off and the angles the oscillation select picks from, or none when the device has no oscillation select. */
   oscillationSelectValues: readonly OscillationSelectValue[];
-  /** Whether the angles of the oscillation select are sweeps written as two angles, for a machine that takes two angles. */
+  /** Whether the angles of the oscillation select or of the oscillation fan are sweeps written as two angles, for a machine that takes two angles. */
   isSweepSelect: boolean;
+  /** The speeds of the oscillation fan, from its first: standing still and the angles narrowest first, or the angles a machine that tilts tilts to. None when the device has no oscillation fan. */
+  oscillationFanPositions: readonly OscillationFanPosition[];
+  /** Whether the oscillation fan has the fan mode Auto, which is the breeze. */
+  hasOscillationFanAuto: boolean;
   /** The angles and the breeze the tilt select picks from, or none when the device has no tilt select. */
   tiltSelectValues: readonly TiltAngle[];
   hasFindAndFollowSwitch: boolean;
@@ -109,6 +113,7 @@ export function getAccessoryLayout(config: DysonDeviceConfig, capabilities: Envi
   const isTilt = controls.tiltAngles.length > 0;
   const hasOscillationSelect = oscillation === 'select' && controls.oscillationAngles.length > 0;
   const hasTiltSelect = oscillation === 'select' && isTilt;
+  const hasOscillationFan = oscillation === 'fan' && controls.oscillationFanAngles.length > 0;
   const findAndFollow = controls.hasFindAndFollow ? config.findAndFollowControl : 'hidden';
   // Matter has filters on an air purifier alone, where an app that does not show them leaves them out: they need no choice.
   const hasFilters = controls.hasFilterLife && config.deviceType === 'airPurifier';
@@ -127,10 +132,13 @@ export function getAccessoryLayout(config: DysonDeviceConfig, capabilities: Envi
     // A switch or a select takes the place of the rocking, which Apple Home mishandles.
     hasRocking: oscillation === 'native',
     isTilt,
-    // An oscillation select without angles to pick from would be a switch, so it is one.
-    hasOscillationSwitch: oscillation === 'switch' || (oscillation === 'select' && !hasOscillationSelect && !hasTiltSelect),
+    // An oscillation select or fan without angles to pick from would be a switch, so it is one.
+    hasOscillationSwitch: oscillation === 'switch' || (oscillation === 'select' && !hasOscillationSelect && !hasTiltSelect) || (oscillation === 'fan' && !hasOscillationFan),
     oscillationSelectValues: hasOscillationSelect ? ['off', ...controls.oscillationAngles] : [],
-    isSweepSelect: hasOscillationSelect && capabilities.oscillationAngles !== null,
+    isSweepSelect: (hasOscillationSelect || (hasOscillationFan && !isTilt)) && capabilities.oscillationAngles !== null,
+    // A machine that tilts is always at one of its angles, and one that does not stands still below its sweeps.
+    oscillationFanPositions: hasOscillationFan ? [...(isTilt ? [] : (['still'] as const)), ...controls.oscillationFanAngles] : [],
+    hasOscillationFanAuto: hasOscillationFan && (isTilt || controls.oscillationAngles.includes('breeze')),
     tiltSelectValues: hasTiltSelect ? controls.tiltAngles : [],
     hasFindAndFollowSwitch: findAndFollow === 'switch',
     findAndFollowSelectValues: findAndFollow === 'select' ? capabilities.findAndFollowModes : [],

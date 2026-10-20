@@ -14,6 +14,7 @@ describe('controls', () => {
       hasOscillation: true,
       oscillationAngles: [45, 90, 180, 350],
       tiltAngles: [],
+      oscillationFanAngles: [45, 90, 180, 350],
       hasFindAndFollow: false,
       hasAirflowDirection: true,
       hasHeat: false,
@@ -33,11 +34,18 @@ describe('controls', () => {
       hasAutoHumidification: true,
       settingControls: ['hasWaterHardnessSelect'],
       oscillationAngles: [45, 90, 'breeze'],
+      // The breeze is the fan mode Auto of an oscillation fan, and no speed.
+      oscillationFanAngles: [45, 90],
     });
   });
 
   it('should offer the tilt of a machine that tilts as its oscillation, and find and follow to one that has it', () => {
-    expect(getAvailableControls(capabilitiesOf(bigQuiet))).toMatchObject({ hasOscillation: true, oscillationAngles: [], tiltAngles: [0, 25, 50, 'breeze'] });
+    expect(getAvailableControls(capabilitiesOf(bigQuiet))).toMatchObject({
+      hasOscillation: true,
+      oscillationAngles: [],
+      tiltAngles: [0, 25, 50, 'breeze'],
+      oscillationFanAngles: [0, 25, 50],
+    });
     expect(getAvailableControls(capabilitiesOf(purifierFollow))).toMatchObject({ hasFindAndFollow: true });
   });
 
@@ -57,6 +65,7 @@ describe('controls', () => {
       hasOscillation: false,
       oscillationAngles: [],
       tiltAngles: [0, 25],
+      oscillationFanAngles: [],
     });
     expect(getAvailableControls({ ...capabilitiesOf(purifierCool), oscillation: 'basic', oscillationAngles: null, oscillationAngleWidthsInDegrees: [] })).toMatchObject({
       hasOscillation: true,
@@ -102,6 +111,18 @@ describe('controls', () => {
     ).toBe('switch');
     expect(fitToCapabilities(device, { ...capabilitiesOf(purifierCool), oscillation: 'none' }).oscillationControl).toBe('select');
     expect(fitToCapabilities(device, capabilitiesOf(purifierCool)).oscillationControl).toBe('select');
+  });
+
+  it('should turn an oscillation fan without angles into a switch, and keep the choice for one the machine lacks', () => {
+    const device = createDeviceConfig(purifierCool, { oscillationControl: 'fan' });
+    expect(
+      fitToCapabilities(device, { ...capabilitiesOf(purifierCool), oscillation: 'basic', oscillationAngles: null, oscillationAngleWidthsInDegrees: [] }).oscillationControl,
+    ).toBe('switch');
+    // A barrel that breezes alone has an auto mode but no speed.
+    expect(fitToCapabilities(device, { ...capabilitiesOf(humidifyCool), oscillationPresetAnglesInDegrees: ['breeze'] }).oscillationControl).toBe('switch');
+    expect(fitToCapabilities(device, { ...capabilitiesOf(purifierCool), oscillation: 'none' }).oscillationControl).toBe('fan');
+    expect(fitToCapabilities(device, capabilitiesOf(purifierCool)).oscillationControl).toBe('fan');
+    expect(fitToCapabilities(createDeviceConfig(bigQuiet, { oscillationControl: 'fan' }), capabilitiesOf(bigQuiet)).oscillationControl).toBe('fan');
   });
 
   it('should tell whether two capabilities build the same controls', () => {

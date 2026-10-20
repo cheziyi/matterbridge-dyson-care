@@ -62,6 +62,32 @@ export interface EndpointIdentity {
 }
 
 /**
+ * Work out the features and the first state of a fan control with the step command, and the speeds and the fan mode
+ * Auto it has
+ *
+ * @param {number} speedCount How many speeds it has, from its first step.
+ * @param {boolean} hasSteps Whether it offers its speeds as steps, besides the percent.
+ * @param {boolean} hasAuto Whether it has the fan mode Auto.
+ * @returns {{ features: FanControl.Feature[]; state: Record<string, unknown> }} The features, and the state it starts with: off.
+ */
+function getFanControlBase(speedCount: number, hasSteps: boolean, hasAuto: boolean): { features: FanControl.Feature[]; state: Record<string, unknown> } {
+  const features: FanControl.Feature[] = [FanControl.Feature.Step];
+  // Off and 0 are valid in every sequence; the first read replaces them with the machine's own state.
+  const state: Record<string, unknown> = {
+    fanMode: FanControl.FanMode.Off,
+    fanModeSequence: getFanModeSequence(hasAuto, speedCount),
+    percentSetting: 0,
+    percentCurrent: 0,
+  };
+  if (hasSteps) {
+    features.push(FanControl.Feature.MultiSpeed);
+    Object.assign(state, { speedMax: speedCount, speedSetting: 0, speedCurrent: 0 });
+  }
+  if (hasAuto) features.push(FanControl.Feature.Auto);
+  return { features, state };
+}
+
+/**
  * Add the fan control of a device, with the features its layout has
  *
  * Every Dyson fan control has ten speeds and the step command. Each feature beside them is the native Matter place of a
@@ -74,19 +100,7 @@ export interface EndpointIdentity {
  * @returns {void}
  */
 function addFanControl(endpoint: MatterbridgeEndpoint, layout: AccessoryLayout): void {
-  const features: FanControl.Feature[] = [FanControl.Feature.Step];
-  // Off and 0 are valid in every sequence; the first read replaces them with the machine's own speed.
-  const state: Record<string, unknown> = {
-    fanMode: FanControl.FanMode.Off,
-    fanModeSequence: getFanModeSequence(layout.hasFanAuto),
-    percentSetting: 0,
-    percentCurrent: 0,
-  };
-  if (layout.hasFanSteps) {
-    features.push(FanControl.Feature.MultiSpeed);
-    Object.assign(state, { speedMax: layout.fanPositions.length, speedSetting: 0, speedCurrent: 0 });
-  }
-  if (layout.hasFanAuto) features.push(FanControl.Feature.Auto);
+  const { features, state } = getFanControlBase(layout.fanPositions.length, layout.hasFanSteps, layout.hasFanAuto);
   if (layout.hasRocking) {
     features.push(FanControl.Feature.Rocking);
     // A Dyson machine turns from side to side, or tilts up and down, never both.
@@ -242,6 +256,26 @@ export function createModeSelectEndpoint(
   // Matter refuses a current or a start-up mode that is not one of the modes.
   const { mode } = supportedModes[0];
   return createSideEndpoint(modeSelect, identity, key, code, label, main, true).createDefaultModeSelectClusterServer(label, supportedModes, mode, mode).addRequiredClusters();
+}
+
+/**
+ * Create the fan of the oscillation of a device: on/off is the power of the machine, the first speed the machine
+ * standing still and each speed above it an angle it sweeps, narrowest first, or each speed an angle a machine that
+ * tilts tilts to, and the fan mode Auto its breeze
+ *
+ * Its speeds are steps or a percent alone, as those of the main fan are.
+ *
+ * @param {EndpointIdentity} identity The device the endpoint belongs to.
+ * @param {AccessoryLayout} layout How the controls of the device are laid out.
+ * @param {MatterbridgeEndpoint} [main] The main endpoint the fan is a part of. Left out, it is a device of its own.
+ * @returns {MatterbridgeEndpoint} The endpoint, off until the first read, with nothing subscribed yet.
+ */
+export function createOscillationFanEndpoint(identity: EndpointIdentity, layout: AccessoryLayout, main?: MatterbridgeEndpoint): MatterbridgeEndpoint {
+  // Every letter is the code of another endpoint, so this one has two.
+  const endpoint = createSideEndpoint(fan, identity, 'oscillation-fan', 'OF', 'Oscillation', main, true).createOnOffClusterServer(false);
+  const { features, state } = getFanControlBase(layout.oscillationFanPositions.length, layout.hasFanSteps, layout.hasOscillationFanAuto);
+  endpoint.behaviors.require(MatterbridgeFanControlServer.with(...features), state);
+  return endpoint.addRequiredClusters();
 }
 
 /**
