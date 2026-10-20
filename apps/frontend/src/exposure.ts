@@ -144,15 +144,15 @@ export function draftsFromMachines(machines: readonly Machine[]): Draft[] {
   return machines.map((machine) => {
     const name = uniqueName(machine.name ?? '', taken);
     taken.add(name);
-    return { machine, name, isNew: true, ...pickExposure(defaultExposure) };
+    return { machine, name, host: '', isNew: true, ...pickExposure(defaultExposure) };
   });
 }
 
 export function draftFromStored(device: StoredDevice): Draft {
-  const { capabilities, controls, reportedSensors, name, roomName, serialNumber, type, variant, mqttRootTopicLevel, model, productName, firmwareVersion, firmwareCapabilities } = device;
+  const { capabilities, controls, reportedSensors, name, roomName, host, serialNumber, type, variant, mqttRootTopicLevel, model, productName, firmwareVersion, firmwareCapabilities } = device;
   // The machine is named as the MyDyson app names it, and the draft as Matter does.
   const machine: Machine = { serialNumber, type, category: 'environmentalCare', name: roomName, variant, mqttRootTopicLevel, model, productName, firmwareVersion, firmwareCapabilities };
-  return { machine, name, isNew: false, capabilities, controls, reportedSensors, ...pickExposure(device) };
+  return { machine, name, host: host ?? '', isNew: false, capabilities, controls, reportedSensors, ...pickExposure(device) };
 }
 
 // What a machine the plugin told nothing about has given: no reading.

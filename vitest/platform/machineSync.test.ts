@@ -37,6 +37,12 @@ describe('machineSync', () => {
     expect(updated?.firmwareCapabilities).toBeUndefined();
   });
 
+  it('should take the password of the broker of a machine on the LAN, and keep the host given in the setup page', () => {
+    const device = { ...livingRoom, host: '192.168.1.20' };
+    expect(getMachineUpdate(device, [{ ...purifierCool, apPasswordHash: 'hash-1' }], log)).toEqual({ ...device, apPasswordHash: 'hash-1' });
+    expect(getMachineUpdate({ ...device, apPasswordHash: 'hash-1' }, [purifierCool], log)).toEqual({ ...device, apPasswordHash: undefined });
+  });
+
   it('should take the new room name of a machine, and keep the name of the device', () => {
     expect(getMachineUpdate(livingRoom, [{ ...purifierCool, name: 'Bedroom' }], log)).toEqual({ ...livingRoom, roomName: 'Bedroom' });
     expect(getMachineUpdate(livingRoom, [{ ...purifierCool, name: undefined }], log)).toEqual({ ...livingRoom, roomName: undefined });

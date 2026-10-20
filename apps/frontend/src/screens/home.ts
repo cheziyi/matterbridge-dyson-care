@@ -111,8 +111,18 @@ function reportLines(report: MachineReport | undefined): Child[] {
   ];
 }
 
+// Where a machine that is online is reached.
+const routeNames = { local: ' on your network', remote: ' through the Dyson cloud' } as const;
+
+// A machine that answers through the cloud did not on the LAN, where the plugin tries it first.
+function routeLine(device: StoredDevice): Child {
+  if (device.status !== 'online' || device.hostType !== 'remote' || device.lanHost === undefined) return null;
+  return h('p', { class: 'meta' }, `It did not answer on your network at ${device.lanHost}, so the plugin reaches it through the Dyson cloud. Check the host in its options.`);
+}
+
 function deviceRow(device: StoredDevice): HTMLElement {
-  const statusText = { online: 'Online', connecting: 'Connecting…', offline: 'Not answering', stopped: 'Not started' }[device.status];
+  const online = `Online${device.hostType === undefined ? '' : routeNames[device.hostType]}`;
+  const statusText = { online, connecting: 'Connecting…', offline: 'Not answering', stopped: 'Not started' }[device.status];
   const isConfirming = view.confirmingRemoval === device.serialNumber;
   const product = device.productName ?? `type ${device.type}`;
   return h(
@@ -123,6 +133,7 @@ function deviceRow(device: StoredDevice): HTMLElement {
       { class: 'device-main' },
       h('h3', {}, device.name),
       h('p', { class: 'meta' }, h('span', { class: `status ${device.status}` }, statusText), ` ${product}, ${device.serialNumber}. In Matter: ${describeExposure(device)}.`),
+      routeLine(device),
       ...reportLines(device.report),
       device.status !== 'online' && device.error ? h('p', { class: 'meta problem-text' }, device.error) : null,
     ),

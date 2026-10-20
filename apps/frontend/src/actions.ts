@@ -221,7 +221,8 @@ export async function saveDraft(draft: Draft): Promise<void> {
     return;
   }
   const { machine } = draft;
-  const device = { ...machine, name, roomName: machine.name, ...pickExposure(draft) };
+  // An empty host is left out: the plugin reaches the machine at the name it gives itself.
+  const device = { ...machine, name, roomName: machine.name, host: draft.host === '' ? undefined : draft.host, ...pickExposure(draft) };
   const reply = await busy(`Saving ${name}…`, async () => api('POST device', { device }));
   if (!reply.ok) {
     view.error = reply.error;

@@ -134,11 +134,11 @@ function createWorld(isSignedIn) {
     account,
     devices: [storedOf('NK6-EU-MHA0001A'), storedOf('NK6-EU-MHA0002A', { name: 'Main Bedroom' }), storedOf('NK6-EU-MHA0003A'), storedOf('NK6-EU-MHA0004A')],
     runs: new Map([
-      ['NK6-EU-MHA0001A', { status: 'online', report: { filters: filters(62, 48), faults: [] } }],
-      ['NK6-EU-MHA0002A', { status: 'online', report: { filters: filters(4, 9), faults: ['filterReplacement'] } }],
+      ['NK6-EU-MHA0001A', { status: 'online', hostType: 'local', report: { filters: filters(62, 48), faults: [] } }],
+      ['NK6-EU-MHA0002A', { status: 'online', hostType: 'local', report: { filters: filters(4, 9), faults: ['filterReplacement'] } }],
       [
         'NK6-EU-MHA0003A',
-        { status: 'online', report: { filters: filters(81, 77), cleanCycle: { state: null, remainingTimeToNextInHours: 72, remainingTimeOfActiveInMinutes: null }, faults: ['tankEmpty'] } },
+        { status: 'online', hostType: 'remote', report: { filters: filters(81, 77), cleanCycle: { state: null, remainingTimeToNextInHours: 72, remainingTimeOfActiveInMinutes: null }, faults: ['tankEmpty'] } },
       ],
       ['NK6-EU-MHA0004A', { status: 'offline', error: 'The machine did not answer within 10 seconds' }],
     ]),
@@ -154,7 +154,8 @@ const platform = {
       const machine = machineOf(device.serialNumber);
       const capabilities = capabilitiesOf(machine);
       const run = world.runs.get(device.serialNumber) ?? { status: 'connecting' };
-      return { ...device, ...run, capabilities, controls: getAvailableControls(capabilities), reportedSensors: addReportedSensors(noReportedSensors, sensorsOf(machine)) };
+      // Each is tried on the LAN first, at the name it gives itself.
+      return { ...device, ...run, lanHost: `${device.serialNumber}.local`, capabilities, controls: getAvailableControls(capabilities), reportedSensors: addReportedSensors(noReportedSensors, sensorsOf(machine)) };
     }),
   }),
   getCountries: async () => ['AU', 'CA', 'CN', 'DE', 'FR', 'GB', 'IE', 'IT', 'JP', 'NL', 'SG', 'US'],

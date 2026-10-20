@@ -10,14 +10,17 @@ import {
   defaultExposure,
   getUnreadableDevices,
   hasSameExposure,
+  getLanHost,
   hasSameMachine,
   isValidSerialNumber,
   normalizeDeviceName,
+  normalizeHost,
   normalizePollInterval,
   parseAccountConfig,
   parseDeviceConfig,
   parseDeviceConfigs,
   toDysonMachine,
+  withoutLanPassword,
 } from '../src/config.js';
 import { account, createDeviceConfig, hotCool, purifierCool } from './fakeDyson.js';
 
@@ -35,6 +38,32 @@ describe('config', () => {
     expect(normalizeDeviceName('   ')).toBeUndefined();
     expect(normalizeDeviceName('A'.repeat(33))).toBeUndefined();
     expect(normalizeDeviceName(undefined)).toBeUndefined();
+  });
+
+  it('should take a host name or an IPv4 address, trimmed', () => {
+    expect(normalizeHost(' 192.168.1.20 ')).toBe('192.168.1.20');
+    expect(normalizeHost('NK6-EU-MHA0001A.local')).toBe('NK6-EU-MHA0001A.local');
+    expect(normalizeHost('purifier')).toBe('purifier');
+    expect(normalizeHost('')).toBeUndefined();
+    expect(normalizeHost('-purifier.local')).toBeUndefined();
+    expect(normalizeHost('purifier..local')).toBeUndefined();
+    expect(normalizeHost('http://purifier')).toBeUndefined();
+    expect(normalizeHost('a'.repeat(64))).toBeUndefined();
+    expect(normalizeHost(42)).toBeUndefined();
+  });
+
+  it('should reach a machine on the LAN at its own name or the host given, once the cloud gave the password of its broker', () => {
+    const device = createDeviceConfig(purifierCool, { apPasswordHash: 'hash-1' });
+    expect(getLanHost(device)).toBe('NK6-EU-MHA0001A.local');
+    expect(getLanHost({ ...device, host: '192.168.1.20' })).toBe('192.168.1.20');
+    expect(getLanHost(createDeviceConfig(purifierCool, { host: '192.168.1.20' }))).toBeUndefined();
+  });
+
+  it('should copy a device without the password of its broker on the LAN', () => {
+    const device = createDeviceConfig(purifierCool, { apPasswordHash: 'hash-1' });
+    expect(withoutLanPassword(device)).toEqual(createDeviceConfig(purifierCool));
+    expect(withoutLanPassword(device)).not.toHaveProperty('apPasswordHash');
+    expect(device.apPasswordHash).toBe('hash-1');
   });
 
   it('should clamp the poll interval to 10..3600 seconds, and fall back to 30', () => {
@@ -77,6 +106,15 @@ describe('config', () => {
     expect(parseDeviceConfig({ name: 'Study', serialNumber: 'NK6', type: '438' })).not.toHaveProperty('firmwareCapabilities');
   });
 
+  it('should read the host and the password of the broker on the LAN of a device, and report a host that is not valid', () => {
+    const stored = { ...createDeviceConfig(purifierCool), host: ' 192.168.1.20 ', apPasswordHash: 'hash-1' };
+    expect(parseDeviceConfig(stored)).toEqual({ ...stored, host: '192.168.1.20' });
+    const report = vi.fn();
+    const device = parseDeviceConfig({ ...stored, host: 'not a host', apPasswordHash: '' }, report);
+    expect(device).toEqual(createDeviceConfig(purifierCool));
+    expect(report).toHaveBeenCalledExactlyOnceWith('"Living Room" has the host "not a host", which is not valid: it is reached at NK6-EU-MHA0001A.local instead');
+  });
+
   it('should refuse a device without a valid name, serial number or type', () => {
     expect(parseDeviceConfig({ serialNumber: 'NK6', type: '438' })).toBeUndefined();
     expect(parseDeviceConfig({ name: 'A', serialNumber: 'NK6 EU', type: '438' })).toBeUndefined();
@@ -110,6 +148,7 @@ describe('config', () => {
       mqttRootTopicLevel: '438M',
       model: 'TP07',
     });
+    expect(toDysonMachine(createDeviceConfig(purifierCool, { host: '192.168.1.20', apPasswordHash: 'hash-1' }))).toEqual({ ...purifierCool, apPasswordHash: 'hash-1' });
     expect(toDysonMachine(createDeviceConfig({ serialNumber: 'NK6', type: '438' }))).toEqual({ serialNumber: 'NK6', type: '438', category: 'environmentalCare', name: 'Unnamed' });
   });
 
@@ -119,6 +158,8 @@ describe('config', () => {
     expect(hasSameMachine(device, { ...device, firmwareCapabilities: [] })).toBe(false);
     expect(hasSameMachine({ ...device, firmwareCapabilities: undefined }, { ...device, firmwareCapabilities: [] })).toBe(true);
     expect(hasSameMachine({ ...device, firmwareCapabilities: [] }, { ...device, firmwareCapabilities: undefined })).toBe(true);
+    expect(hasSameMachine(device, { ...device, host: '192.168.1.20' })).toBe(false);
+    expect(hasSameMachine(device, { ...device, apPasswordHash: 'hash-1' })).toBe(false);
     expect(hasSameExposure(device, { ...device, firmwareVersion: '1' })).toBe(true);
     expect(hasSameExposure(device, { ...device, name: 'Elsewhere' })).toBe(false);
     expect(hasSameExposure(device, { ...device, nightModeControl: 'switch' })).toBe(false);

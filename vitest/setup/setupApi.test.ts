@@ -145,6 +145,18 @@ describe('setupApi', () => {
     });
   });
 
+  it('should save a device with a host, and refuse a host that is not valid', async () => {
+    const device = createDeviceConfig(purifierCool, { host: '192.168.1.20' });
+    expect(await handleSetupRequest(platform, 'POST', 'device', {}, { device })).toEqual({ ok: true, state });
+    expect(platform.saveDevice).toHaveBeenCalledWith(device);
+    vi.mocked(platform.saveDevice).mockClear();
+    expect(await handleSetupRequest(platform, 'POST', 'device', {}, { device: { ...device, host: 'http://purifier' } })).toEqual({
+      ok: false,
+      error: 'Enter a host name or an IPv4 address for Living Room, or leave the host empty to reach it at NK6-EU-MHA0001A.local',
+    });
+    expect(platform.saveDevice).not.toHaveBeenCalled();
+  });
+
   it('should remove a device by the serial number of its machine', async () => {
     expect(await handleSetupRequest(platform, 'DELETE', 'device', { serialNumber: purifierCool.serialNumber })).toEqual({ ok: true });
     platform.removeDevice.mockResolvedValueOnce(false);

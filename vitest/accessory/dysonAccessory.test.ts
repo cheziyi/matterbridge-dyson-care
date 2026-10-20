@@ -571,6 +571,33 @@ describe('DysonAccessory', () => {
       await vi.waitFor(() => expect(client.getState).toHaveBeenCalledTimes(1));
     });
 
+    it('should log the broker it connects through when it changes, and show it in its status', async () => {
+      const info = vi.spyOn(log, 'info');
+      // It started through the cloud.
+      expect(accessory.getStatus().hostType).toBe('remote');
+      client.hostType = 'local';
+      client.handlers.onReconnect();
+      expect(info).toHaveBeenCalledWith('"Living Room" connected again through the LAN');
+      expect(accessory.getStatus().hostType).toBe('local');
+      await vi.waitFor(() => expect(client.getState).toHaveBeenCalledTimes(1));
+      // Connecting again through the same broker says nothing new.
+      client.handlers.onDisconnect();
+      expect(await accessory.refresh()).toBe(true);
+      expect(client.connect).toHaveBeenCalledTimes(1);
+      expect(info).not.toHaveBeenCalledWith('"Living Room" connected through the LAN');
+      client.handlers.onDisconnect();
+      client.hostType = 'remote';
+      expect(await accessory.refresh()).toBe(true);
+      expect(info).toHaveBeenCalledWith('"Living Room" connected through the Dyson cloud');
+      // No connection is open.
+      client.hostType = null;
+      expect(accessory.getStatus().hostType).toBeUndefined();
+      client.handlers.onReconnect();
+      expect(info).toHaveBeenCalledWith('"Living Room" connected again');
+      await vi.waitFor(() => expect(client.getState).toHaveBeenCalledTimes(3));
+      client.hostType = 'remote';
+    });
+
     it('should log what it cannot write to Matter, and carry on', async () => {
       const sensor = required(accessory.airQualitySensor);
       vi.spyOn(sensor, 'updateAttribute').mockRejectedValueOnce(new Error('Matter is busy'));

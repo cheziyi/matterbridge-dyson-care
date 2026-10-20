@@ -21,10 +21,10 @@
  * limitations under the License.
  */
 
-import type { CleanCycleState, DysonMachine, EnvironmentalCareCapabilities, EnvironmentalCareState, Filter } from 'dyson-control';
+import type { CleanCycleState, DysonMachine, EnvironmentalCareCapabilities, EnvironmentalCareState, Filter, HostType } from 'dyson-control';
 import { isValidObject, isValidString } from 'matterbridge/utils';
 
-import { type DysonDeviceConfig, isValidSerialNumber, normalizeDeviceName, parseDeviceConfig } from '../config.js';
+import { type DysonDeviceConfig, isValidSerialNumber, normalizeDeviceName, normalizeHost, parseDeviceConfig } from '../config.js';
 import type { AvailableControls, ReportedSensors } from '../controls.js';
 import { getErrorMessage } from '../errors.js';
 import { filterHoursToPercent, toFilterCondition } from '../mapping.js';
@@ -73,10 +73,14 @@ export function getMachineReport(state: EnvironmentalCareState | undefined, faul
   return report;
 }
 
-/** A stored device as the setup page sees it, with how it is doing. */
-export type SetupDevice = DysonDeviceConfig & {
+/** A stored device as the setup page sees it, with how it is doing: never the password of its broker on the LAN. */
+export type SetupDevice = Omit<DysonDeviceConfig, 'apPasswordHash'> & {
   /** `online`, `connecting` until its first read ends and `offline` for a running device, `stopped` for one that could not be started yet. */
   status: 'online' | 'connecting' | 'offline' | 'stopped';
+  /** Where the machine is tried first on the LAN, or undefined when the cloud has not given the password of its broker there. */
+  lanHost?: string;
+  /** The broker its open connection goes through: the machine's own on the LAN, or the cloud's. */
+  hostType?: HostType;
   error?: string;
   /** What the machine takes, while an account is signed in to read it with. */
   capabilities?: EnvironmentalCareCapabilities;
@@ -102,8 +106,8 @@ export interface SetupState {
   devices: SetupDevice[];
 }
 
-/** A machine of the account, as the setup page sees it. */
-export type FoundMachine = DysonMachine & {
+/** A machine of the account, as the setup page sees it: never the password of its broker on the LAN. */
+export type FoundMachine = Omit<DysonMachine, 'apPasswordHash'> & {
   /** The machine is that of a stored device. */
   isConfigured: boolean;
   /** Whether the plugin can control it, or why not. */
@@ -275,6 +279,9 @@ async function handlePost(platform: SetupPlatform, path: string, body: Record<st
   if (path === 'device') {
     const device = parseDeviceConfig(body.device);
     if (device === undefined) return fail('The device needs a name of at most 32 characters, the serial number of its machine and its type');
+    const { host } = toRecord(body.device);
+    if (host !== undefined && normalizeHost(host) === undefined)
+      return fail(`Enter a host name or an IPv4 address for ${device.name}, or leave the host empty to reach it at ${device.serialNumber}.local`);
     await platform.saveDevice(device);
     return { ok: true, state: await platform.getSetupState() };
   }
