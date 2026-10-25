@@ -26,7 +26,7 @@ const settingNames: Readonly<Record<SettingControlKey, string>> = {
   hasWaterHardnessSelect: 'water hardness',
 };
 
-const placeNames = { native: 'on the fan', switch: 'as a switch', select: 'as a mode select', hidden: '' } as const;
+const placeNames = { native: 'on the fan', switch: 'as a switch', select: 'as a mode select', fan: 'as a fan of its own', hidden: '' } as const;
 
 // Such as "a fan with speed steps, the oscillation and the night mode on the fan, a thermostat, and sensors, all as one device".
 function describeExposure(device: StoredDevice): string {

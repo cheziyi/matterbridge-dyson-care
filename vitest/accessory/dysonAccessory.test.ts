@@ -882,6 +882,161 @@ describe('DysonAccessory', () => {
     });
   });
 
+  describe('an oscillation fan', () => {
+    const bare = { hasAirQualitySensor: false, hasTemperatureSensor: false, hasHumiditySensor: false, oscillationControl: 'fan' } as const;
+
+    it('should show a barrel still at speed 1, its preset angles above and its breeze as auto, on and off with the machine', async () => {
+      const machine = { ...humidifyCool, serialNumber: 'NK6-EU-MHA0081A' };
+      const client = createFakeClient(machine, { oscillationMode: 'on', oscillationPresetAngleInDegrees: 90, humidificationMode: 'off' });
+      const accessory = new DysonAccessory({ config: createDeviceConfig(machine, bare), createClient: factoryOf(client), log, vendorId, commandDelayInMs: 500 });
+      const fan = required(accessory.oscillationFan);
+      expect(accessory.endpoints).toContain(fan);
+      expect(fan.deviceName).toBe('Nursery Oscillation');
+      expect(fan.serialNumber).toBe(`${machine.serialNumber}-OF`);
+      await addAccessory(accessory);
+      // The fan takes the place of the rocking.
+      expect(accessory.endpoint.getAttribute(FanControl, 'rockSupport')).toBeUndefined();
+      expect(fan.getAttribute(FanControl, 'speedMax')).toBe(3);
+      expect(fan.getAttribute(FanControl, 'fanModeSequence')).toBe(FanControl.FanModeSequence.OffLowMedHighAuto);
+      await accessory.start();
+      expect(fan.getAttribute(OnOff, 'onOff')).toBe(true);
+      expect(fan.getAttribute(FanControl, 'speedCurrent')).toBe(3);
+      expect(fan.getAttribute(FanControl, 'percentSetting')).toBe(100);
+      client.state = { ...client.state, oscillationPresetAngleInDegrees: 'breeze' };
+      await accessory.refresh();
+      expect(fan.getAttribute(FanControl, 'fanMode')).toBe(FanControl.FanMode.Auto);
+      // An angle the fan does not have leaves its speed as it was.
+      client.state = { ...client.state, oscillationPresetAngleInDegrees: 'custom' };
+      await accessory.refresh();
+      expect(fan.getAttribute(OnOff, 'onOff')).toBe(true);
+      expect(fan.getAttribute(FanControl, 'fanMode')).toBe(FanControl.FanMode.Auto);
+      // Standing still is the first speed, and the fan stays on.
+      client.state = { ...client.state, oscillationMode: 'off' };
+      await accessory.refresh();
+      expect(fan.getAttribute(OnOff, 'onOff')).toBe(true);
+      expect(fan.getAttribute(FanControl, 'speedCurrent')).toBe(1);
+      client.state = { ...client.state, fanPower: false };
+      await accessory.refresh();
+      expect(fan.getAttribute(OnOff, 'onOff')).toBe(false);
+      expect(fan.getAttribute(FanControl, 'percentSetting')).toBe(0);
+
+      // A speed turns the machine on, as dyson-control sends the oscillation.
+      await writeAsController(fan, 'FanControl', 'percentSetting', 66);
+      await accessory.flushCommands();
+      expect(client.setState).toHaveBeenLastCalledWith({ oscillationMode: 'on', oscillationPresetAngleInDegrees: 45 });
+      expect(fan.getAttribute(OnOff, 'onOff')).toBe(true);
+      expect(fan.getAttribute(FanControl, 'speedCurrent')).toBe(2);
+      await writeAsController(fan, 'FanControl', 'fanMode', FanControl.FanMode.Auto);
+      await accessory.flushCommands();
+      expect(client.setState).toHaveBeenLastCalledWith({ oscillationMode: 'on', oscillationPresetAngleInDegrees: 'breeze' });
+      await writeAsController(fan, 'FanControl', 'percentSetting', 33);
+      await accessory.flushCommands();
+      expect(client.setState).toHaveBeenLastCalledWith({ oscillationMode: 'off' });
+      // Its own on/off sends nothing, and the read back puts it back.
+      client.setState.mockClear();
+      await writeAsController(fan, 'OnOff', 'onOff', false);
+      await accessory.flushCommands();
+      expect(client.setState).not.toHaveBeenCalled();
+      expect(fan.getAttribute(OnOff, 'onOff')).toBe(true);
+      await accessory.dispose();
+    });
+
+    it('should send the sweep of a machine that takes two angles, as a part of the main device with its speed as a percentage', async () => {
+      const machine = { ...purifierCool, serialNumber: 'NK6-EU-MHA0082A' };
+      const client = createFakeClient(machine, { oscillationMode: 'on', oscillationAngles: { lowerInDegrees: 90, upperInDegrees: 270 } });
+      const config = createDeviceConfig(machine, { ...bare, fanControl: 'percent', isComposed: true });
+      const accessory = new DysonAccessory({ config, createClient: factoryOf(client), log, vendorId, commandDelayInMs: 500 });
+      expect(accessory.endpoints).toEqual([accessory.endpoint]);
+      await addAccessory(accessory);
+      const fan = required(accessory.oscillationFan);
+      expect(fan.getAttribute(FanControl, 'speedMax')).toBeUndefined();
+      expect(fan.getAttribute(FanControl, 'fanModeSequence')).toBe(FanControl.FanModeSequence.OffLowMedHigh);
+      await accessory.start();
+      // Still, then the four sweeps: 180° is the fourth speed of five.
+      expect(fan.getAttribute(FanControl, 'percentSetting')).toBe(80);
+      await writeAsController(fan, 'FanControl', 'percentSetting', 100);
+      await accessory.flushCommands();
+      expect(client.setState).toHaveBeenLastCalledWith({ oscillationMode: 'on', oscillationAngles: { lowerInDegrees: 5, upperInDegrees: 355 } });
+      await writeAsController(fan, 'FanControl', 'percentSetting', 20);
+      await accessory.flushCommands();
+      expect(client.setState).toHaveBeenLastCalledWith({ oscillationMode: 'off' });
+      expect(fan.getAttribute(FanControl, 'percentSetting')).toBe(20);
+      await accessory.dispose();
+    });
+
+    it('should tilt a machine that tilts to its speeds and breeze it in auto, with its on/off that of the machine alone', async () => {
+      const machine = { ...bigQuiet, serialNumber: 'NK6-EU-MHA0083A' };
+      const client = createFakeClient(machine, { oscillationMode: null, tiltAngleInDegrees: null, fanAirDirection: null });
+      const accessory = new DysonAccessory({ config: createDeviceConfig(machine, bare), createClient: factoryOf(client), log, vendorId, commandDelayInMs: 500 });
+      await addAccessory(accessory);
+      const fan = required(accessory.oscillationFan);
+      expect(fan.getAttribute(FanControl, 'speedMax')).toBe(3);
+      expect(fan.getAttribute(FanControl, 'fanModeSequence')).toBe(FanControl.FanModeSequence.OffLowMedHighAuto);
+      // On with the machine, at no speed while the machine says no angle.
+      await accessory.start();
+      expect(fan.getAttribute(OnOff, 'onOff')).toBe(true);
+      expect(fan.getAttribute(FanControl, 'percentSetting')).toBe(0);
+      client.state = { ...client.state, tiltAngleInDegrees: 0 };
+      await accessory.refresh();
+      expect(fan.getAttribute(FanControl, 'speedCurrent')).toBe(1);
+      await writeAsController(fan, 'FanControl', 'percentSetting', 66);
+      await accessory.flushCommands();
+      expect(client.setState).toHaveBeenLastCalledWith({ tiltAngleInDegrees: 25 });
+      expect(fan.getAttribute(FanControl, 'speedCurrent')).toBe(2);
+      await writeAsController(fan, 'FanControl', 'fanMode', FanControl.FanMode.Auto);
+      await accessory.flushCommands();
+      expect(client.setState).toHaveBeenLastCalledWith({ tiltAngleInDegrees: 'breeze' });
+      expect(fan.getAttribute(FanControl, 'fanMode')).toBe(FanControl.FanMode.Auto);
+      // Its own off sends nothing, even while it breezes, and the read back puts the fan back.
+      client.setState.mockClear();
+      await writeAsController(fan, 'OnOff', 'onOff', false);
+      await accessory.flushCommands();
+      await writeAsController(fan, 'FanControl', 'fanMode', FanControl.FanMode.Off);
+      await accessory.flushCommands();
+      expect(client.setState).not.toHaveBeenCalled();
+      expect(fan.getAttribute(OnOff, 'onOff')).toBe(true);
+      expect(fan.getAttribute(FanControl, 'fanMode')).toBe(FanControl.FanMode.Auto);
+      // Off with the machine, and its own on sends nothing.
+      await writeAsController(accessory.endpoint, 'OnOff', 'onOff', false);
+      await accessory.flushCommands();
+      expect(fan.getAttribute(OnOff, 'onOff')).toBe(false);
+      expect(fan.getAttribute(FanControl, 'percentSetting')).toBe(0);
+      client.setState.mockClear();
+      await writeAsController(fan, 'OnOff', 'onOff', true);
+      await accessory.flushCommands();
+      expect(client.setState).not.toHaveBeenCalled();
+      expect(fan.getAttribute(OnOff, 'onOff')).toBe(false);
+      await accessory.dispose();
+    });
+
+    it('should leave the speed as it was for a breeze the fan has no auto for', async () => {
+      const machine = { ...hotCool, serialNumber: 'NK6-EU-MHA0085A' };
+      const client = createFakeClient(machine, { oscillationMode: 'on', oscillationPresetAngleInDegrees: 45, heatMode: 'off' });
+      const config = createDeviceConfig(machine, { ...bare, heatControl: 'hidden' });
+      const accessory = new DysonAccessory({ config, createClient: factoryOf(client), log, vendorId, commandDelayInMs: 500 });
+      await addAccessory(accessory);
+      const fan = required(accessory.oscillationFan);
+      expect(fan.getAttribute(FanControl, 'fanModeSequence')).toBe(FanControl.FanModeSequence.OffLowMedHigh);
+      await accessory.start();
+      expect(fan.getAttribute(FanControl, 'speedCurrent')).toBe(2);
+      client.state = { ...client.state, oscillationPresetAngleInDegrees: 'breeze' };
+      await accessory.refresh();
+      expect(fan.getAttribute(OnOff, 'onOff')).toBe(true);
+      expect(fan.getAttribute(FanControl, 'speedCurrent')).toBe(2);
+      await accessory.dispose();
+    });
+
+    it('should be a switch on a machine with no angle to make a speed of', async () => {
+      const machine = { ...purifierCool, serialNumber: 'NK6-EU-MHA0084A', firmwareCapabilities: [] };
+      const client = createFakeClient(machine);
+      const accessory = new DysonAccessory({ config: createDeviceConfig(machine, bare), createClient: factoryOf(client), log, vendorId });
+      expect(client.capabilities.oscillation).toBe('basic');
+      expect(accessory.oscillationFan).toBeUndefined();
+      expect(accessory.oscillationSwitch).toBeDefined();
+      await accessory.dispose();
+    });
+  });
+
   describe('a purifier that follows people, with its filters', () => {
     let client: FakeClient;
     let accessory: DysonAccessory;

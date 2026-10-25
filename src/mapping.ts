@@ -82,6 +82,12 @@ export const oscillationSelectChoices: SelectChoices<OscillationSelectValue> = {
 /** An angle of the oscillation select, which a machine that takes two angles is sent as their width. */
 export type OscillationSweep = Extract<OscillationSelectValue, number>;
 
+/** An angle that is a speed of the oscillation fan: one the machine sweeps, or one a machine that tilts tilts to. */
+export type OscillationFanAngle = OscillationSweep | Exclude<TiltAngle, 'breeze'>;
+
+/** A speed of the oscillation fan: an angle, or `still` for a machine that does not tilt standing still, below its sweeps. */
+export type OscillationFanPosition = 'still' | OscillationFanAngle;
+
 /** What the humidity select picks: off, the auto mode, or a target humidity. */
 export type HumiditySelectValue = 'off' | 'auto' | HumidityTarget;
 
@@ -156,13 +162,22 @@ export function percentToFanStep(stepCount: number, percent: number): number {
 /**
  * Pick the Matter fan mode sequence of a fan control
  *
- * Every machine has ten speeds, so the sequence always has Low, Medium and High.
+ * Every machine has ten speeds, so the sequence of its fan always has Low, Medium and High. The fan of its oscillation
+ * can have fewer, one for each angle.
+ *
+ * Edge cases:
+ *  - two speeds -> Low and High
+ *  - one speed -> High alone
  *
  * @param {boolean} hasAuto Whether the fan control has the fan mode Auto.
+ * @param {number} [speedCount] How many speeds the fan control has. Defaults to the ten of every machine.
  * @returns {FanControl.FanModeSequence} The sequence.
  */
-export function getFanModeSequence(hasAuto: boolean): FanControl.FanModeSequence {
-  return hasAuto ? FanControl.FanModeSequence.OffLowMedHighAuto : FanControl.FanModeSequence.OffLowMedHigh;
+export function getFanModeSequence(hasAuto: boolean, speedCount = fanSteps.length): FanControl.FanModeSequence {
+  const { OffLowMedHighAuto, OffLowMedHigh, OffLowHighAuto, OffLowHigh, OffHighAuto, OffHigh } = FanControl.FanModeSequence;
+  if (speedCount >= 3) return hasAuto ? OffLowMedHighAuto : OffLowMedHigh;
+  if (speedCount === 2) return hasAuto ? OffLowHighAuto : OffLowHigh;
+  return hasAuto ? OffHighAuto : OffHigh;
 }
 
 /**
@@ -203,6 +218,16 @@ export function toOscillationMode(isOn: boolean, state: EnvironmentalCareState |
  */
 export function isOscillationSweep(value: OscillationSelectValue): value is OscillationSweep {
   return typeof value === 'number';
+}
+
+/**
+ * Tell whether an angle of the oscillation fan is one a machine that tilts tilts to, rather than one a machine sweeps
+ *
+ * @param {OscillationFanAngle} angle The angle.
+ * @returns {boolean} True for 0°, 25° and 50°, which no machine sweeps.
+ */
+export function isTiltFanAngle(angle: OscillationFanAngle): angle is Exclude<TiltAngle, 'breeze'> {
+  return TILT_ANGLES.some((tilt) => tilt === angle);
 }
 
 /**

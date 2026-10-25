@@ -6,7 +6,7 @@
  */
 
 import { goHome, saveDraft } from '../actions.js';
-import type { AvailableControls, Exposure, OscillationAngleChoice, ReportedSensors, SettingControlKey } from '../api.js';
+import type { AvailableControls, Exposure, OscillationAngleChoice, OscillationFanAngle, ReportedSensors, SettingControlKey } from '../api.js';
 import { button, notice, steps, unitHeader, unitStrip } from '../components.js';
 import { type Child, h } from '../dom.js';
 import { noControls, noReportedSensors } from '../exposure.js';
@@ -157,35 +157,55 @@ function fanSection(draft: Draft, controls: AvailableControls): HTMLElement {
 }
 
 // Such as "45°, 90° and breeze".
-function listAngles(angles: readonly OscillationAngleChoice[]): string {
+function listAngles(angles: readonly (OscillationAngleChoice | OscillationFanAngle)[]): string {
   const labels = angles.map((angle) => (angle === 'breeze' ? 'breeze' : `${angle}°`));
   return labels.length === 1 ? labels[0] : `${labels.slice(0, -1).join(', ')} and ${labels[labels.length - 1]}`;
 }
 
+// The fan of the oscillation: each angle is a speed, narrowest first, and the breeze is its fan mode Auto. Its on/off
+// is the power of the machine.
+function oscillationFanChoice(draft: Draft, current: Exposure['oscillationControl'], speeds: string, hasBreeze: boolean, pick: (value: Exposure['oscillationControl']) => void): HTMLElement {
+  const breeze = hasBreeze ? ', and its fan mode Auto breezes' : '';
+  return radio(
+    'oscillation',
+    'fan',
+    current,
+    'A fan',
+    `${placement(draft, 'Oscillation', true)}, with ${speeds}${breeze}. It is on and off with the machine, and its own on/off does nothing. It takes the place of the rocking of the fan control, which Apple Home mishandles.`,
+    pick,
+  );
+}
+
 // A machine that tilts breezes up and down in place of oscillating, and tilts to an angle in place of sweeping one.
-function tiltSection(draft: Draft): HTMLElement {
+function tiltSection(draft: Draft, controls: AvailableControls): HTMLElement {
   const pick = (oscillationControl: Exposure['oscillationControl']): void => update(draft, { oscillationControl });
+  const hasFan = controls.oscillationFanAngles.length > 0;
+  const current = draft.oscillationControl === 'fan' && !hasFan ? 'switch' : draft.oscillationControl;
   return radioSection(
     'Tilt',
     'The machine tilts to 0°, 25° or 50°, or breezes: it tilts up and down. Tilting turns a machine that is off on, as in the MyDyson app.',
-    radio('oscillation', 'native', draft.oscillationControl, 'Native rocking', `The up and down rocking of the fan control, as Matter has it: on breezes, off goes back to the angle it was tilted to. ${fanFeatureSupport}`, pick),
-    radio('oscillation', 'switch', draft.oscillationControl, 'A switch', `${placement(draft, 'Oscillation', true)}. On breezes, off goes back to the angle it was tilted to. It takes the place of the rocking of the fan control, which Apple Home mishandles.`, pick),
-    radio('oscillation', 'select', draft.oscillationControl, 'A mode select', `${placement(draft, 'Tilt', true)}, and picks 0°, 25°, 50° or breeze. It takes the place of the rocking of the fan control, which Apple Home mishandles. ${selectSupport}`, pick),
+    radio('oscillation', 'native', current, 'Native rocking', `The up and down rocking of the fan control, as Matter has it: on breezes, off goes back to the angle it was tilted to. ${fanFeatureSupport}`, pick),
+    radio('oscillation', 'switch', current, 'A switch', `${placement(draft, 'Oscillation', true)}. On breezes, off goes back to the angle it was tilted to. It takes the place of the rocking of the fan control, which Apple Home mishandles.`, pick),
+    radio('oscillation', 'select', current, 'A mode select', `${placement(draft, 'Tilt', true)}, and picks 0°, 25°, 50° or breeze. It takes the place of the rocking of the fan control, which Apple Home mishandles. ${selectSupport}`, pick),
+    hasFan ? oscillationFanChoice(draft, current, `${listAngles(controls.oscillationFanAngles)} its speeds`, true, pick) : null,
   );
 }
 
 function oscillationSection(draft: Draft, controls: AvailableControls): Child {
   if (!controls.hasOscillation) return null;
-  if (controls.tiltAngles.length > 0) return tiltSection(draft);
+  if (controls.tiltAngles.length > 0) return tiltSection(draft, controls);
   const pick = (oscillationControl: Exposure['oscillationControl']): void => update(draft, { oscillationControl });
   const hasSelect = controls.oscillationAngles.length > 0;
-  const current = draft.oscillationControl === 'select' && !hasSelect ? 'switch' : draft.oscillationControl;
+  const hasFan = controls.oscillationFanAngles.length > 0;
+  const isFallback = (draft.oscillationControl === 'select' && !hasSelect) || (draft.oscillationControl === 'fan' && !hasFan);
+  const current = isFallback ? 'switch' : draft.oscillationControl;
   return radioSection(
     'Oscillation',
     '',
     radio('oscillation', 'native', current, 'Native rocking', `The left and right rocking of the fan control, as Matter has it. ${fanFeatureSupport}`, pick),
     radio('oscillation', 'switch', current, 'A switch', `${placement(draft, 'Oscillation', true)}. On sweeps the angle set in the MyDyson app. It takes the place of the rocking of the fan control, which Apple Home mishandles.`, pick),
     hasSelect ? radio('oscillation', 'select', current, 'A mode select', `${placement(draft, 'Oscillation', true)}, and picks off or one of ${listAngles(controls.oscillationAngles)}. It takes the place of the rocking of the fan control, which Apple Home mishandles. ${selectSupport}`, pick) : null,
+    hasFan ? oscillationFanChoice(draft, current, `the first speed standing it still and ${listAngles(controls.oscillationFanAngles)} the speeds above it`, controls.oscillationAngles.includes('breeze'), pick) : null,
   );
 }
 

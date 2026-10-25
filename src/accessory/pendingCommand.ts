@@ -29,11 +29,12 @@ import {
   getSweepAngles,
   type HumiditySelectValue,
   isOscillationSweep,
+  isTiltFanAngle,
   middleFanSpeed,
   type OscillationSelectValue,
   toOscillationMode,
 } from '../mapping.js';
-import type { FanRequest } from './matterState.js';
+import type { FanRequest, OscillationFanRequest } from './matterState.js';
 
 /** The machine as it was last read, which a command is worked out against. */
 export interface MachineSnapshot {
@@ -42,7 +43,7 @@ export interface MachineSnapshot {
   capabilities: EnvironmentalCareCapabilities;
   /** The speed the fan last ran at outside the auto mode, which turning the auto mode off goes back to. */
   lastManualFanSpeed: FanSpeed | undefined;
-  /** Whether the angles of the oscillation select are sweeps written as two angles. */
+  /** Whether the angles of the oscillation select or of the oscillation fan are sweeps written as two angles. */
   isSweepSelect: boolean;
   /** Whether the machine tilts, so that its oscillation is its breeze. */
   isTilt: boolean;
@@ -60,6 +61,7 @@ export class PendingCommand {
   private isFanRequested = false;
   private fanAuto: boolean | undefined;
   private isOscillationOn: boolean | undefined;
+  private isOscillationFanRequested = false;
   private oscillation: OscillationSelectValue | undefined;
   private tilt: TiltAngle | undefined;
   private humidity: HumiditySelectValue | undefined;
@@ -104,6 +106,15 @@ export class PendingCommand {
     this.isOscillationOn = isOn;
     this.oscillation = undefined;
     this.tilt = undefined;
+  }
+
+  /**
+   * Ask for the angle or the breeze the oscillation fan holds when the command is sent
+   *
+   * @returns {void}
+   */
+  requestOscillationFan(): void {
+    this.isOscillationFanRequested = true;
   }
 
   /**
@@ -157,14 +168,17 @@ export class PendingCommand {
    *  - a target humidity turns the humidifying on, and the machine with it
    *  - the oscillation of a machine paused while it stands by is turned on and off with its idle modes
    *  - the breeze of a machine that tilts turned off goes back to the angle it was last seen at, or to 0°
+   *  - the on/off of the oscillation fan and the fan set to off send nothing: the read back puts back the power of the
+   *    machine, which they show. Its first speed stands a machine that does not tilt still
    *  - whether a machine that is off turns on is left to dyson-control, which turns it on with nearly every field, as
    *    the MyDyson app does
    *
    * @param {MachineSnapshot} machine The machine as it was last read.
    * @param {() => FanRequest | undefined} readFan Reads what the fan control holds. It is only called when the fan control was written.
+   * @param {() => OscillationFanRequest | undefined} [readOscillationFan] Reads what the oscillation fan holds. It is only called when its fan control was written.
    * @returns {EnvironmentalCareControl} The fields to send, none when nothing was asked of the machine.
    */
-  take(machine: MachineSnapshot, readFan: () => FanRequest | undefined): EnvironmentalCareControl {
+  take(machine: MachineSnapshot, readFan: () => FanRequest | undefined, readOscillationFan?: () => OscillationFanRequest | undefined): EnvironmentalCareControl {
     const { control } = this;
     const { state } = machine;
     if (this.isFanRequested) this.applyFan(control, readFan());
@@ -173,6 +187,7 @@ export class PendingCommand {
       control.fanSpeed = control.fanSpeed ?? machine.lastManualFanSpeed ?? middleFanSpeed;
       delete control.autoMode;
     }
+    if (this.isOscillationFanRequested) this.applyOscillationFan(machine.isTilt, readOscillationFan?.());
     const oscillationModes = machine.capabilities.oscillationModes;
     if (this.isOscillationOn !== undefined) {
       if (machine.isTilt) this.tilt = this.isOscillationOn ? 'breeze' : (machine.lastTiltAngle ?? defaultTiltAngle);
@@ -211,9 +226,22 @@ export class PendingCommand {
     this.isFanRequested = false;
     this.fanAuto = undefined;
     this.isOscillationOn = undefined;
+    this.isOscillationFanRequested = false;
     this.oscillation = undefined;
     this.tilt = undefined;
     this.humidity = undefined;
+  }
+
+  // The on/off of the fan is the power of the machine, which it does not set, so that its speeds and its breeze are all
+  // it sends.
+  private applyOscillationFan(isTilt: boolean, request: OscillationFanRequest | undefined): void {
+    if (request === undefined || request === 'off') return;
+    if (request === 'auto') {
+      if (isTilt) this.tilt = 'breeze';
+      else this.oscillation = 'breeze';
+    } else if (request === 'still') this.oscillation = 'off';
+    else if (isTiltFanAngle(request)) this.tilt = request;
+    else this.oscillation = request;
   }
 
   // Off is the power, unless a controller turned the power on with the same write.

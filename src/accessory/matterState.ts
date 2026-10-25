@@ -41,6 +41,7 @@ import {
   type HumiditySelectValue,
   indexToLevel,
   isOscillating,
+  type OscillationFanPosition,
   oscillationSelectChoices,
   type OscillationSelectValue,
   percentToFanStep,
@@ -62,6 +63,7 @@ export interface AccessoryEndpoints {
   readonly oscillationSwitch: MatterbridgeEndpoint | undefined;
   readonly oscillationSelect: MatterbridgeEndpoint | undefined;
   readonly tiltSelect: MatterbridgeEndpoint | undefined;
+  readonly oscillationFan: MatterbridgeEndpoint | undefined;
   readonly findAndFollowSwitch: MatterbridgeEndpoint | undefined;
   readonly findAndFollowSelect: MatterbridgeEndpoint | undefined;
   /** The switch or the mode select of each setting control the device has. */
@@ -82,17 +84,20 @@ export interface AccessoryEndpoints {
 /** What a controller set on the fan control: off, or a place on its scale. */
 export type FanRequest = 'off' | FanPosition;
 
+/** What a controller set on the oscillation fan: off, a speed, or its fan mode Auto, which is the breeze. */
+export type OscillationFanRequest = 'off' | 'auto' | OscillationFanPosition;
+
 /**
- * Read what a controller set on the fan control
+ * Read what a controller set on a fan control: the one of the main endpoint, or the one of the oscillation fan
  *
- * @param {MatterbridgeEndpoint} endpoint The main endpoint.
- * @param {readonly FanPosition[]} fanPositions The places on the scale of the fan control, from its first step.
- * @returns {FanRequest | undefined} Off, the auto mode or a fan speed, or undefined when the fan control holds none of them.
+ * @param {MatterbridgeEndpoint} endpoint The endpoint of the fan control.
+ * @param {readonly T[]} fanPositions The places on the scale of the fan control, from its first step.
+ * @returns {'off' | 'auto' | T | undefined} Off, the fan mode Auto or a place on the scale, or undefined when the fan control holds none of them.
  */
-export function readFanRequest(endpoint: MatterbridgeEndpoint, fanPositions: readonly FanPosition[]): FanRequest | undefined {
+export function readFanRequest<T extends FanPosition | OscillationFanPosition>(endpoint: MatterbridgeEndpoint, fanPositions: readonly T[]): 'off' | 'auto' | T | undefined {
   const fanMode: unknown = endpoint.getAttribute(FanControl, 'fanMode');
   const percent: unknown = endpoint.getAttribute(FanControl, 'percentSetting');
-  // Matter refuses the fan mode Auto on a fan control without it, so a machine that reaches here has an auto mode.
+  // Matter refuses the fan mode Auto on a fan control without it, so a fan control that reaches here has it.
   if (fanMode === FanControl.FanMode.Auto) return 'auto';
   if (fanMode === FanControl.FanMode.Off || percent === 0) return 'off';
   if (!isValidNumber(percent, 1, 100)) return undefined;
@@ -116,18 +121,30 @@ async function applyFan(endpoint: MatterbridgeEndpoint, layout: AccessoryLayout,
     await endpoint.updateAttribute(FanControl, 'fanMode', FanControl.FanMode.Auto);
     return;
   }
-  let percent = 0;
   let step = 0;
   if (state.fanPower) {
     const position: FanPosition | null = isAuto && layout.hasFanAutoStep ? 'auto' : state.fanSpeed;
     step = position === null ? 0 : layout.fanPositions.indexOf(position) + 1;
     if (step === 0) return;
-    percent = fanStepToPercent(layout.fanPositions.length, step);
   }
+  await applyFanStep(endpoint, layout.fanPositions.length, layout.hasFanSteps, step);
+}
+
+/**
+ * Write a step of a fan control, or off
+ *
+ * @param {MatterbridgeEndpoint} endpoint The endpoint of the fan control.
+ * @param {number} stepCount How many steps the fan control has.
+ * @param {boolean} hasSteps Whether it offers its speeds as steps, besides the percent.
+ * @param {number} step The step, from 1 for the first, or 0 for off.
+ * @returns {Promise<void>} Resolves when the fan control is written.
+ */
+async function applyFanStep(endpoint: MatterbridgeEndpoint, stepCount: number, hasSteps: boolean, step: number): Promise<void> {
+  const percent = step === 0 ? 0 : fanStepToPercent(stepCount, step);
   // Writing the percent makes the fan control server derive the fan mode and the speed setting.
   await endpoint.updateAttribute(FanControl, 'percentSetting', percent);
   await endpoint.updateAttribute(FanControl, 'percentCurrent', percent);
-  if (layout.hasFanSteps) await endpoint.updateAttribute(FanControl, 'speedCurrent', step);
+  if (hasSteps) await endpoint.updateAttribute(FanControl, 'speedCurrent', step);
 }
 
 /**
@@ -263,17 +280,54 @@ async function applySelect<T extends string | number>(
 }
 
 /**
- * Work out what the oscillation select shows
+ * Work out the angle a machine that does not tilt sweeps, as the oscillation select and the oscillation fan show it
  *
  * @param {AccessoryLayout} layout How the controls of the device are laid out.
  * @param {EnvironmentalCareState} state The state of the machine.
- * @returns {OscillationSelectValue | undefined} Off, the angle the machine sweeps, or undefined when it sweeps angles the select does not list.
+ * @returns {OscillationSelectValue | undefined} Off, the angle the machine sweeps or its breeze, or undefined when it sweeps an angle no select lists.
  */
-function getOscillationSelectValue(layout: AccessoryLayout, state: EnvironmentalCareState): OscillationSelectValue | undefined {
+function getOscillationValue(layout: AccessoryLayout, state: EnvironmentalCareState): OscillationSelectValue | undefined {
   if (!isOscillating(state.oscillationMode)) return 'off';
-  if (layout.isSweepSelect) return getSweep(state.oscillationAngles, layout.oscillationSelectValues);
+  if (layout.isSweepSelect) return getSweep(state.oscillationAngles, oscillationSelectChoices.values);
   const angle = state.oscillationPresetAngleInDegrees;
   return angle === null || angle === 'custom' ? undefined : angle;
+}
+
+/**
+ * Work out what the oscillation fan shows
+ *
+ * @param {AccessoryLayout} layout How the controls of the device are laid out.
+ * @param {EnvironmentalCareState} state The state of the machine.
+ * @returns {OscillationFanRequest | undefined} Off while the machine is, a speed of the fan or its fan mode Auto for the breeze, or undefined when the machine is at an angle the fan does not have.
+ */
+function getOscillationFanValue(layout: AccessoryLayout, state: EnvironmentalCareState): OscillationFanRequest | undefined {
+  if (!state.fanPower) return 'off';
+  const value = layout.isTilt ? state.tiltAngleInDegrees : getOscillationValue(layout, state);
+  if (value === 'off') return 'still';
+  if (value === 'breeze') return layout.hasOscillationFanAuto ? 'auto' : undefined;
+  return layout.oscillationFanPositions.find((position) => position === value);
+}
+
+/**
+ * Write the oscillation of a machine to its oscillation fan
+ *
+ * Edge cases:
+ *  - an angle the fan does not have shows the fan on, at the speed it showed before
+ *  - the fan is on and off with the machine, and keeps its speed while a machine that tilts says no angle
+ *
+ * @param {MatterbridgeEndpoint} endpoint The oscillation fan.
+ * @param {AccessoryLayout} layout How the controls of the device are laid out.
+ * @param {EnvironmentalCareState} state The state of the machine.
+ * @returns {Promise<void>} Resolves when the fan is written.
+ */
+async function applyOscillationFan(endpoint: MatterbridgeEndpoint, layout: AccessoryLayout, state: EnvironmentalCareState): Promise<void> {
+  const value = getOscillationFanValue(layout, state);
+  await endpoint.updateAttribute(OnOff, 'onOff', value !== 'off');
+  if (value === 'auto') await endpoint.updateAttribute(FanControl, 'fanMode', FanControl.FanMode.Auto);
+  else if (value !== undefined) {
+    const step = value === 'off' ? 0 : layout.oscillationFanPositions.indexOf(value) + 1;
+    await applyFanStep(endpoint, layout.oscillationFanPositions.length, layout.hasFanSteps, step);
+  }
 }
 
 /**
@@ -383,7 +437,8 @@ export async function applyState(endpoints: AccessoryEndpoints, layout: Accessor
   await applySwitch(endpoints.autoHumidifySwitch, state.autoHumidification === true);
   await applySwitch(endpoints.continuousMonitoringSwitch, state.continuousMonitoring === true);
   if (endpoints.thermostat !== undefined) await applyThermostat(endpoints.thermostat, layout, state, roomTemperatureInC);
-  await applySelect(endpoints.oscillationSelect, oscillationSelectChoices, layout.oscillationSelectValues, getOscillationSelectValue(layout, state));
+  await applySelect(endpoints.oscillationSelect, oscillationSelectChoices, layout.oscillationSelectValues, getOscillationValue(layout, state));
+  if (endpoints.oscillationFan !== undefined) await applyOscillationFan(endpoints.oscillationFan, layout, state);
   await applySelect(endpoints.humiditySelect, humiditySelectChoices, layout.humiditySelectValues, getHumiditySelectValue(state));
   await applySelect(endpoints.tiltSelect, tiltSelectChoices, layout.tiltSelectValues, state.tiltAngleInDegrees ?? undefined);
   await applySelect(endpoints.findAndFollowSelect, findAndFollowSelectChoices, layout.findAndFollowSelectValues, state.findAndFollowMode ?? undefined);

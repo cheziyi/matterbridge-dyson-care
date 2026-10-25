@@ -77,13 +77,14 @@ export function pickExposure(source: Exposure): Exposure {
 
 /**
  * Drop the choices a machine has no use for, as `fitToCapabilities` in the plugin does: the controls of what it lacks
- * are not shown, and an oscillation select without angles to pick from is a switch.
+ * are not shown, and an oscillation select or fan without angles to pick from is a switch.
  */
 export function fitExposure(exposure: Exposure, controls: AvailableControls): Exposure {
   const fitted = pickExposure(exposure);
   if (!controls.hasAutoMode) fitted.fanAutoControl = 'native';
   const hasNoAngle = controls.oscillationAngles.length === 0 && controls.tiltAngles.length === 0;
   if (controls.hasOscillation && fitted.oscillationControl === 'select' && hasNoAngle) fitted.oscillationControl = 'switch';
+  if (controls.hasOscillation && fitted.oscillationControl === 'fan' && controls.oscillationFanAngles.length === 0) fitted.oscillationControl = 'switch';
   if (!controls.hasHeat) fitted.heatControl = 'hidden';
   if (!controls.hasHumidification) fitted.humidificationControl = 'hidden';
   if (!controls.hasFindAndFollow) fitted.findAndFollowControl = 'hidden';
@@ -174,6 +175,7 @@ export const noControls: AvailableControls = {
   hasOscillation: false,
   oscillationAngles: [],
   tiltAngles: [],
+  oscillationFanAngles: [],
   hasFindAndFollow: false,
   hasAirflowDirection: false,
   hasHeat: false,
