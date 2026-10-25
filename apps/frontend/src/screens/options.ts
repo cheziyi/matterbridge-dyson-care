@@ -2,7 +2,23 @@
  * @file apps/frontend/src/screens/options.ts
  * @description The Options step: how the fan, its auto mode, oscillation and night mode, the find and follow, the heating, the humidifying, the clean cycle and the readings of a machine appear in Matter, one section each, and whether as one device.
  * @author Calvin Che
+ * @created 2026-10-19
+ * @version 1.1.0
  * @license Apache-2.0
+ *
+ * Copyright 2026 Calvin Che.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 import { goHome, saveDraft } from '../actions.js';
@@ -19,7 +35,8 @@ const glyphs = {
   steps:
     '<svg viewBox="0 0 48 28" aria-hidden="true"><rect x="2" y="20" width="8" height="6"/><rect x="14" y="14" width="8" height="12"/><rect x="26" y="8" width="8" height="18"/><rect x="38" y="2" width="8" height="24"/></svg>',
   percent: '<svg viewBox="0 0 48 28" aria-hidden="true"><path d="M2 26 L46 2 L46 26 Z"/></svg>',
-  purifier: '<svg viewBox="0 0 48 28" aria-hidden="true"><rect class="stroke" x="16" y="2" width="16" height="24" rx="3"/><path class="stroke" d="M20 8 H28 M20 13 H28 M20 18 H28"/></svg>',
+  purifier:
+    '<svg viewBox="0 0 48 28" aria-hidden="true"><rect class="stroke" x="16" y="2" width="16" height="24" rx="3"/><path class="stroke" d="M20 8 H28 M20 13 H28 M20 18 H28"/></svg>',
   fan: '<svg viewBox="0 0 48 28" aria-hidden="true"><circle class="stroke" cx="24" cy="12" r="9"/><path class="stroke" d="M24 21 V26 M18 26 H30"/></svg>',
 };
 
@@ -43,7 +60,13 @@ function update(draft: Draft, change: Partial<Exposure>): void {
 function choice<T extends string>(group: string, value: T, current: T, title: string, text: string, glyph: string, onpick: (value: T) => void): HTMLElement {
   const id = `${group}-${value}`;
   const input = h('input', { type: 'radio', name: group, id, checked: value === current, onchange: () => onpick(value) });
-  return h('label', { class: 'choice pictured', for: id }, input, h('span', { class: 'glyph', html: glyph }), h('span', {}, h('strong', {}, title), h('span', { class: 'meta' }, text)));
+  return h(
+    'label',
+    { class: 'choice pictured', for: id },
+    input,
+    h('span', { class: 'glyph', html: glyph }),
+    h('span', {}, h('strong', {}, title), h('span', { class: 'meta' }, text)),
+  );
 }
 
 function radio<T extends string>(group: string, value: T, current: T, title: string, text: string, onpick: (value: T) => void): HTMLElement {
@@ -60,7 +83,13 @@ function toggle(id: string, isOn: boolean, title: string, text: string, onpick: 
 /** A section of radio choices, with a heading and a line of help. */
 function radioSection(title: string, help: string, ...choices: Child[]): HTMLElement {
   const id = `${title.toLowerCase().replaceAll(' ', '-')}-title`;
-  return h('section', {}, h('h2', { id }, title), help === '' ? null : h('p', { class: 'help' }, help), h('div', { 'class': 'choices', 'role': 'radiogroup', 'aria-labelledby': id }, ...choices));
+  return h(
+    'section',
+    {},
+    h('h2', { id }, title),
+    help === '' ? null : h('p', { class: 'help' }, help),
+    h('div', { 'class': 'choices', 'role': 'radiogroup', 'aria-labelledby': id }, ...choices),
+  );
 }
 
 // Redrawn as it is typed, so that the texts that name the device follow. A redraw when the field is left instead would
@@ -78,7 +107,11 @@ function nameSection(draft: Draft): HTMLElement {
     'section',
     {},
     h('h2', {}, h('label', { for: 'device-name' }, 'Name in Matter')),
-    h('p', { class: 'help' }, `${roomText} The name here is what your Matter apps show, up to 32 characters, and no two machines of this plugin share one. A new room name in the MyDyson app does not change it.`),
+    h(
+      'p',
+      { class: 'help' },
+      `${roomText} The name here is what your Matter apps show, up to 32 characters, and no two machines of this plugin share one. A new room name in the MyDyson app does not change it.`,
+    ),
     h('div', { class: 'inline-form' }, input),
   );
 }
@@ -115,8 +148,24 @@ function deviceTypeSection(draft: Draft, controls: AvailableControls): HTMLEleme
     h(
       'div',
       { class: 'choices' },
-      choice('device-type', 'airPurifier', draft.deviceType, 'An air purifier', `The Matter device type of a purifier, with its fan speed${filters}. Apple Home, Google Home and Home Assistant show it.`, glyphs.purifier, pick),
-      choice('device-type', 'fan', draft.deviceType, 'A fan', `The Matter device type every app shows, with the same fan speed${controls.hasFilterLife ? ', but no filters' : ''}. For apps that show no air purifier.`, glyphs.fan, pick),
+      choice(
+        'device-type',
+        'airPurifier',
+        draft.deviceType,
+        'An air purifier',
+        `The Matter device type of a purifier, with its fan speed${filters}. Apple Home, Google Home and Home Assistant show it.`,
+        glyphs.purifier,
+        pick,
+      ),
+      choice(
+        'device-type',
+        'fan',
+        draft.deviceType,
+        'A fan',
+        `The Matter device type every app shows, with the same fan speed${controls.hasFilterLife ? ', but no filters' : ''}. For apps that show no air purifier.`,
+        glyphs.fan,
+        pick,
+      ),
     ),
   );
 }
@@ -135,7 +184,15 @@ function fanSection(draft: Draft, controls: AvailableControls): HTMLElement {
       'div',
       { class: 'choices' },
       choice('fan', 'steps', draft.fanControl, 'Steps', `${speedCount} A slider shows them as a percentage too.`, glyphs.steps, pickFan),
-      choice('fan', 'percent', draft.fanControl, 'Percentage', 'A slider from 0 to 100, which the plugin rounds to the nearest speed: 10 % is speed 1 and 100 % speed 10.', glyphs.percent, pickFan),
+      choice(
+        'fan',
+        'percent',
+        draft.fanControl,
+        'Percentage',
+        'A slider from 0 to 100, which the plugin rounds to the nearest speed: 10 % is speed 1 and 100 % speed 10.',
+        glyphs.percent,
+        pickFan,
+      ),
     ),
     controls.hasAutoMode
       ? h(
@@ -147,7 +204,14 @@ function fanSection(draft: Draft, controls: AvailableControls): HTMLElement {
             'div',
             { 'class': 'choices', 'role': 'radiogroup', 'aria-labelledby': 'fan-auto-title' },
             radio('fan-auto', 'native', current, 'Native fan mode only', 'Auto is a mode of the fan speed, beside its speeds, as Matter has it.', pickAuto),
-            radio('fan-auto', 'switch', current, 'A switch', `${placement(draft, 'Auto Mode', true)}. On turns the auto mode on, off goes back to the speed the fan last ran at. Auto stays a fan mode as well.`, pickAuto),
+            radio(
+              'fan-auto',
+              'switch',
+              current,
+              'A switch',
+              `${placement(draft, 'Auto Mode', true)}. On turns the auto mode on, off goes back to the speed the fan last ran at. Auto stays a fan mode as well.`,
+              pickAuto,
+            ),
             radio('fan-auto', 'firstStep', current, 'The first step', 'Auto comes below speed 1: step 1, or the bottom of the slider.', pickAuto),
             radio('fan-auto', 'lastStep', current, 'The last step', 'Auto comes above speed 10: the top step, or 100 %.', pickAuto),
           ),
@@ -164,7 +228,13 @@ function listAngles(angles: readonly (OscillationAngleChoice | OscillationFanAng
 
 // The fan of the oscillation: each angle is a speed, narrowest first, and the breeze is its fan mode Auto. Its on/off
 // is the power of the machine.
-function oscillationFanChoice(draft: Draft, current: Exposure['oscillationControl'], speeds: string, hasBreeze: boolean, pick: (value: Exposure['oscillationControl']) => void): HTMLElement {
+function oscillationFanChoice(
+  draft: Draft,
+  current: Exposure['oscillationControl'],
+  speeds: string,
+  hasBreeze: boolean,
+  pick: (value: Exposure['oscillationControl']) => void,
+): HTMLElement {
   const breeze = hasBreeze ? ', and its fan mode Auto breezes' : '';
   return radio(
     'oscillation',
@@ -184,9 +254,30 @@ function tiltSection(draft: Draft, controls: AvailableControls): HTMLElement {
   return radioSection(
     'Tilt',
     'The machine tilts to 0°, 25° or 50°, or breezes: it tilts up and down. Tilting turns a machine that is off on, as in the MyDyson app.',
-    radio('oscillation', 'native', current, 'Native rocking', `The up and down rocking of the fan control, as Matter has it: on breezes, off goes back to the angle it was tilted to. ${fanFeatureSupport}`, pick),
-    radio('oscillation', 'switch', current, 'A switch', `${placement(draft, 'Oscillation', true)}. On breezes, off goes back to the angle it was tilted to. It takes the place of the rocking of the fan control, which Apple Home mishandles.`, pick),
-    radio('oscillation', 'select', current, 'A mode select', `${placement(draft, 'Tilt', true)}, and picks 0°, 25°, 50° or breeze. It takes the place of the rocking of the fan control, which Apple Home mishandles. ${selectSupport}`, pick),
+    radio(
+      'oscillation',
+      'native',
+      current,
+      'Native rocking',
+      `The up and down rocking of the fan control, as Matter has it: on breezes, off goes back to the angle it was tilted to. ${fanFeatureSupport}`,
+      pick,
+    ),
+    radio(
+      'oscillation',
+      'switch',
+      current,
+      'A switch',
+      `${placement(draft, 'Oscillation', true)}. On breezes, off goes back to the angle it was tilted to. It takes the place of the rocking of the fan control, which Apple Home mishandles.`,
+      pick,
+    ),
+    radio(
+      'oscillation',
+      'select',
+      current,
+      'A mode select',
+      `${placement(draft, 'Tilt', true)}, and picks 0°, 25°, 50° or breeze. It takes the place of the rocking of the fan control, which Apple Home mishandles. ${selectSupport}`,
+      pick,
+    ),
     hasFan ? oscillationFanChoice(draft, current, `${listAngles(controls.oscillationFanAngles)} its speeds`, true, pick) : null,
   );
 }
@@ -203,9 +294,33 @@ function oscillationSection(draft: Draft, controls: AvailableControls): Child {
     'Oscillation',
     '',
     radio('oscillation', 'native', current, 'Native rocking', `The left and right rocking of the fan control, as Matter has it. ${fanFeatureSupport}`, pick),
-    radio('oscillation', 'switch', current, 'A switch', `${placement(draft, 'Oscillation', true)}. On sweeps the angle set in the MyDyson app. It takes the place of the rocking of the fan control, which Apple Home mishandles.`, pick),
-    hasSelect ? radio('oscillation', 'select', current, 'A mode select', `${placement(draft, 'Oscillation', true)}, and picks off or one of ${listAngles(controls.oscillationAngles)}. It takes the place of the rocking of the fan control, which Apple Home mishandles. ${selectSupport}`, pick) : null,
-    hasFan ? oscillationFanChoice(draft, current, `the first speed standing it still and ${listAngles(controls.oscillationFanAngles)} the speeds above it`, controls.oscillationAngles.includes('breeze'), pick) : null,
+    radio(
+      'oscillation',
+      'switch',
+      current,
+      'A switch',
+      `${placement(draft, 'Oscillation', true)}. On sweeps the angle set in the MyDyson app. It takes the place of the rocking of the fan control, which Apple Home mishandles.`,
+      pick,
+    ),
+    hasSelect
+      ? radio(
+          'oscillation',
+          'select',
+          current,
+          'A mode select',
+          `${placement(draft, 'Oscillation', true)}, and picks off or one of ${listAngles(controls.oscillationAngles)}. It takes the place of the rocking of the fan control, which Apple Home mishandles. ${selectSupport}`,
+          pick,
+        )
+      : null,
+    hasFan
+      ? oscillationFanChoice(
+          draft,
+          current,
+          `the first speed standing it still and ${listAngles(controls.oscillationFanAngles)} the speeds above it`,
+          controls.oscillationAngles.includes('breeze'),
+          pick,
+        )
+      : null,
   );
 }
 
@@ -215,7 +330,14 @@ function nightModeSection(draft: Draft): HTMLElement {
     'Night mode',
     'In its night mode the machine runs quieter and dims its display.',
     radio('night-mode', 'native', draft.nightModeControl, 'Native sleep wind only', `The sleep wind of the fan control, as Matter has it. ${fanFeatureSupport}`, pick),
-    radio('night-mode', 'switch', draft.nightModeControl, 'A switch', `${placement(draft, 'Night Mode', true)}. The night mode stays the sleep wind of the fan control as well.`, pick),
+    radio(
+      'night-mode',
+      'switch',
+      draft.nightModeControl,
+      'A switch',
+      `${placement(draft, 'Night Mode', true)}. The night mode stays the sleep wind of the fan control as well.`,
+      pick,
+    ),
   );
 }
 
@@ -225,8 +347,22 @@ function airflowSection(draft: Draft, controls: AvailableControls): Child {
   return radioSection(
     'Airflow direction',
     'The machine blows its air out of the front, or out of the back to circulate the air without cooling you.',
-    radio('airflow', 'native', draft.airflowDirectionControl, 'Native airflow direction only', `The airflow direction of the fan control, as Matter has it: forward is the front. ${fanFeatureSupport}`, pick),
-    radio('airflow', 'switch', draft.airflowDirectionControl, 'A switch', `${placement(draft, 'Front Airflow', true)}. On blows the air out of the front, off out of the back. The airflow direction of the fan control stays as well.`, pick),
+    radio(
+      'airflow',
+      'native',
+      draft.airflowDirectionControl,
+      'Native airflow direction only',
+      `The airflow direction of the fan control, as Matter has it: forward is the front. ${fanFeatureSupport}`,
+      pick,
+    ),
+    radio(
+      'airflow',
+      'switch',
+      draft.airflowDirectionControl,
+      'A switch',
+      `${placement(draft, 'Front Airflow', true)}. On blows the air out of the front, off out of the back. The airflow direction of the fan control stays as well.`,
+      pick,
+    ),
   );
 }
 
@@ -237,7 +373,14 @@ function findAndFollowSection(draft: Draft, controls: AvailableControls): Child 
     'Find and follow',
     'The machine finds the people in the room and turns to follow them. It runs only while the machine is on, so turning it on turns the machine on.',
     radio('find-and-follow', 'switch', draft.findAndFollowControl, 'A switch', `${placement(draft, 'Find and Follow', true)}. On follows the people the machine finds.`, pick),
-    radio('find-and-follow', 'select', draft.findAndFollowControl, 'A mode select', `${placement(draft, 'Find and Follow', true)}, and picks off, follow, or scan to look for people. ${selectSupport}`, pick),
+    radio(
+      'find-and-follow',
+      'select',
+      draft.findAndFollowControl,
+      'A mode select',
+      `${placement(draft, 'Find and Follow', true)}, and picks off, follow, or scan to look for people. ${selectSupport}`,
+      pick,
+    ),
     radio('find-and-follow', 'hidden', draft.findAndFollowControl, 'Not shown in Matter', 'Find and follow stays as the MyDyson app sets it.', pick),
   );
 }
@@ -248,7 +391,14 @@ function heatSection(draft: Draft, controls: AvailableControls): Child {
   return radioSection(
     'Heating',
     'The machine heats only while it is on, so turning the heating on turns the machine on.',
-    radio('heat', 'thermostat', draft.heatControl, 'A thermostat', `${placement(draft, 'Heater', false)}: it heats or is off, with a setpoint from 1 to 37 °C. Off leaves the fan running.`, pick),
+    radio(
+      'heat',
+      'thermostat',
+      draft.heatControl,
+      'A thermostat',
+      `${placement(draft, 'Heater', false)}: it heats or is off, with a setpoint from 1 to 37 °C. Off leaves the fan running.`,
+      pick,
+    ),
     radio('heat', 'switch', draft.heatControl, 'A switch', `${placement(draft, 'Heat', true)}. It heats to the setpoint set in the MyDyson app.`, pick),
     radio('heat', 'hidden', draft.heatControl, 'Not shown in Matter', 'The heating stays as the MyDyson app sets it.', pick),
   );
@@ -262,7 +412,14 @@ function humidifySection(draft: Draft, controls: AvailableControls): Child {
   return radioSection(
     'Humidifying',
     'Matter has no humidifier, so the humidifying takes a switch or a mode select. It runs only while the machine is on, so turning it on turns the machine on.',
-    radio('humidify', 'switches', draft.humidificationControl, 'Switches', `${placement(draft, 'Humidify', true)}, and humidifies to the target set in the MyDyson app.${autoSwitch}`, pick),
+    radio(
+      'humidify',
+      'switches',
+      draft.humidificationControl,
+      'Switches',
+      `${placement(draft, 'Humidify', true)}, and humidifies to the target set in the MyDyson app.${autoSwitch}`,
+      pick,
+    ),
     radio('humidify', 'select', draft.humidificationControl, 'A mode select', `${placement(draft, 'Target Humidity', true)}, and picks ${autoValue}. ${selectSupport}`, pick),
     radio('humidify', 'hidden', draft.humidificationControl, 'Not shown in Matter', 'The humidifying stays as the MyDyson app sets it.', pick),
   );
@@ -288,7 +445,11 @@ function moreControlsSection(draft: Draft, controls: AvailableControls): Child {
     'section',
     {},
     h('h2', {}, 'More controls'),
-    h('p', { class: 'help' }, 'Controls of this machine that Matter has no place for. As in the MyDyson app, most of them turn a machine that is off on: the air quality target and the wick drying do not.'),
+    h(
+      'p',
+      { class: 'help' },
+      'Controls of this machine that Matter has no place for. As in the MyDyson app, most of them turn a machine that is off on: the air quality target and the wick drying do not.',
+    ),
     h(
       'div',
       { class: 'choices' },
@@ -308,7 +469,11 @@ function cleanCycleSection(draft: Draft, controls: AvailableControls): Child {
     'section',
     {},
     h('h2', {}, 'Clean cycle'),
-    h('p', { class: 'help' }, 'The machine asks for a clean cycle as often as the hardness of its water says: the harder the water, the sooner. The setup page shows when the next one is due.'),
+    h(
+      'p',
+      { class: 'help' },
+      'The machine asks for a clean cycle as often as the hardness of its water says: the harder the water, the sooner. The setup page shows when the next one is due.',
+    ),
     h(
       'div',
       { class: 'choices' },
@@ -366,13 +531,21 @@ function sensorSection(draft: Draft, controls: AvailableControls): HTMLElement {
           )
         : null,
       reported.temperature
-        ? toggle('temperature', draft.hasTemperatureSensor, 'Add a temperature sensor', `${placement(draft, 'Temperature', false)}, with the room temperature the machine measures.`, (hasTemperatureSensor) =>
-            update(draft, { hasTemperatureSensor }),
+        ? toggle(
+            'temperature',
+            draft.hasTemperatureSensor,
+            'Add a temperature sensor',
+            `${placement(draft, 'Temperature', false)}, with the room temperature the machine measures.`,
+            (hasTemperatureSensor) => update(draft, { hasTemperatureSensor }),
           )
         : null,
       reported.humidity
-        ? toggle('humidity', draft.hasHumiditySensor, 'Add a humidity sensor', `${placement(draft, 'Humidity', false)}, with the room humidity the machine measures.`, (hasHumiditySensor) =>
-            update(draft, { hasHumiditySensor }),
+        ? toggle(
+            'humidity',
+            draft.hasHumiditySensor,
+            'Add a humidity sensor',
+            `${placement(draft, 'Humidity', false)}, with the room humidity the machine measures.`,
+            (hasHumiditySensor) => update(draft, { hasHumiditySensor }),
           )
         : null,
       controls.hasContinuousMonitoring
@@ -436,7 +609,14 @@ function connectionSection(draft: Draft): HTMLElement {
         'The plugin finds the machine on your network by the service it announces there, and reaches it through the Dyson cloud when it does not answer. It searches again on each connection, so it follows the machine to a new IP address.',
         pick,
       ),
-      radio('connection', 'cloud', current, 'The Dyson cloud only', 'For a machine that is not on the network of Matterbridge: each connection skips the search of up to 3 seconds.', pick),
+      radio(
+        'connection',
+        'cloud',
+        current,
+        'The Dyson cloud only',
+        'For a machine that is not on the network of Matterbridge: each connection skips the search of up to 3 seconds.',
+        pick,
+      ),
     ),
     draft.isCloudOnly ? null : hostField(draft),
   );
@@ -486,8 +666,19 @@ export function optionsScreen(): Child[] {
     sensorSection(draft, controls),
     composedSection(draft),
     connectionSection(draft),
-    draft.isNew ? null : h('p', { class: 'help' }, 'Changing any of these but the connection rebuilds this machine in Matter. Your Matter app may take a moment to show the change.'),
+    draft.isNew
+      ? null
+      : h(
+          'p',
+          { class: 'help' },
+          'Changing any of these but the name and the connection takes effect at the next restart of Matterbridge, which this page and Matterbridge ask for. Until then the machine keeps its current controls.',
+        ),
     notice(),
-    h('div', { class: 'footer' }, button('Cancel', goHome), button(draft.isNew ? `Add ${draft.name}` : 'Save options', () => void saveDraft(draft), 'primary')),
+    h(
+      'div',
+      { class: 'footer' },
+      button('Cancel', goHome),
+      button(draft.isNew ? `Add ${draft.name}` : 'Save options', () => void saveDraft(draft), 'primary'),
+    ),
   ];
 }

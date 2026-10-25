@@ -28,11 +28,11 @@ function snapshot(overrides: Partial<MachineSnapshot> = {}): MachineSnapshot {
 }
 
 describe('PendingCommand', () => {
-  it('should send nothing when nothing was asked', () => {
+  test('should send nothing when nothing was asked', () => {
     expect(new PendingCommand().take(snapshot(), () => 'off')).toEqual({});
   });
 
-  it('should turn the machine off with a fan set to off, unless its power was asked on with it', () => {
+  test('should turn the machine off with a fan set to off, unless its power was asked on with it', () => {
     const pending = new PendingCommand();
     pending.requestFan();
     expect(pending.take(snapshot(), () => 'off')).toEqual({ fanPower: false });
@@ -47,7 +47,7 @@ describe('PendingCommand', () => {
     expect(pending.take(snapshot(), () => undefined)).toEqual({});
   });
 
-  it('should leave the auto mode for the last speed, or speed 5', () => {
+  test('should leave the auto mode for the last speed, or speed 5', () => {
     const pending = new PendingCommand();
     const inAuto = { ...createFakeClient(purifierCool).state, autoMode: true, fanSpeed: null };
     pending.requestFanAuto(false);
@@ -63,7 +63,7 @@ describe('PendingCommand', () => {
     expect(pending.take(snapshot(), () => undefined)).toEqual({});
   });
 
-  it('should sweep through two angles on a machine that takes any two, and send a preset otherwise', () => {
+  test('should sweep through two angles on a machine that takes any two, and send a preset otherwise', () => {
     const pending = new PendingCommand();
     pending.requestOscillation(180);
     expect(pending.take(snapshot(), () => undefined)).toEqual({ oscillationMode: 'on', oscillationAngles: { lowerInDegrees: 90, upperInDegrees: 270 } });
@@ -73,7 +73,7 @@ describe('PendingCommand', () => {
     expect(pending.take(snapshot({ isSweepSelect: false }), () => undefined)).toEqual({ oscillationMode: 'on', oscillationPresetAngleInDegrees: 'breeze' });
   });
 
-  it('should oscillate with the idle modes while the machine stands by, and let the last request win', () => {
+  test('should oscillate with the idle modes while the machine stands by, and let the last request win', () => {
     const pending = new PendingCommand();
     const idle = { ...createFakeClient(purifierCool).state, oscillationState: 'idle' as const };
     pending.requestOscillationOn(true);
@@ -90,7 +90,7 @@ describe('PendingCommand', () => {
     expect(pending.take(snapshot({ isSweepSelect: false }), () => undefined)).toEqual({ oscillationMode: 'on', oscillationPresetAngleInDegrees: 90 });
   });
 
-  it('should breeze a machine that tilts, and go back to its last angle', () => {
+  test('should breeze a machine that tilts, and go back to its last angle', () => {
     const pending = new PendingCommand();
     const tilt = { ...createFakeClient(bigQuiet).state, oscillationMode: null, tiltAngleInDegrees: 25 as const };
     const machine = snapshot({ state: tilt, capabilities: capabilitiesOf(bigQuiet), isSweepSelect: false, isTilt: true, lastTiltAngle: 25 });
@@ -109,7 +109,7 @@ describe('PendingCommand', () => {
     expect(pending.take({ ...machine, state: { ...tilt, fanPower: false } }, () => undefined)).toEqual({ tiltAngleInDegrees: 0, fanPower: true });
   });
 
-  it('should sweep the angle of the oscillation fan, breeze in its auto, and stand still at its first speed', () => {
+  test('should sweep the angle of the oscillation fan, breeze in its auto, and stand still at its first speed', () => {
     const pending = new PendingCommand();
     const machine = snapshot({ isSweepSelect: false, capabilities: capabilitiesOf(humidifyCool) });
     pending.requestOscillationFan();
@@ -147,7 +147,7 @@ describe('PendingCommand', () => {
     ).toEqual({ oscillationMode: 'on', oscillationAngles: { lowerInDegrees: 90, upperInDegrees: 270 } });
   });
 
-  it('should send nothing for the oscillation fan set to off, or holding nothing, since its on/off is the power of the machine', () => {
+  test('should send nothing for the oscillation fan set to off, or holding nothing, since its on/off is the power of the machine', () => {
     const pending = new PendingCommand();
     const machine = snapshot({ isSweepSelect: false, capabilities: capabilitiesOf(humidifyCool) });
     pending.requestOscillationFan();
@@ -170,7 +170,7 @@ describe('PendingCommand', () => {
     expect(pending.take(machine, () => undefined)).toEqual({});
   });
 
-  it('should tilt a machine that tilts to the angle of its oscillation fan, and breeze it in its auto', () => {
+  test('should tilt a machine that tilts to the angle of its oscillation fan, and breeze it in its auto', () => {
     const pending = new PendingCommand();
     const tilt = { ...createFakeClient(bigQuiet).state, oscillationMode: null, tiltAngleInDegrees: 25 as const };
     const machine = snapshot({ state: tilt, capabilities: capabilitiesOf(bigQuiet), isSweepSelect: false, isTilt: true, lastTiltAngle: 25 });
@@ -208,7 +208,7 @@ describe('PendingCommand', () => {
     ).toEqual({});
   });
 
-  it('should leave whether a machine that is off turns on to dyson-control, as the MyDyson app does', () => {
+  test('should leave whether a machine that is off turns on to dyson-control, as the MyDyson app does', () => {
     const pending = new PendingCommand();
     const off = snapshot({ state: { ...createFakeClient(hotCool).state, fanPower: false, heatMode: 'off', humidificationMode: 'off' } });
     pending.requestControl({ nightMode: true });
@@ -225,7 +225,7 @@ describe('PendingCommand', () => {
     expect(pending.take(off, () => undefined)).toEqual({ autoHumidification: true });
   });
 
-  it('should humidify to a target, and to the auto mode only on a machine that has one', () => {
+  test('should humidify to a target, and to the auto mode only on a machine that has one', () => {
     const pending = new PendingCommand();
     pending.requestHumidity(40);
     expect(pending.take(snapshot({ capabilities: capabilitiesOf(humidifyCool) }), () => undefined)).toEqual({
@@ -243,7 +243,7 @@ describe('PendingCommand', () => {
     });
   });
 
-  it('should clamp a heating setpoint, and drop what was asked when it is cleared', () => {
+  test('should clamp a heating setpoint, and drop what was asked when it is cleared', () => {
     const pending = new PendingCommand();
     pending.requestHeatTarget(40.4);
     expect(pending.take(snapshot({ capabilities: capabilitiesOf(hotCool) }), () => undefined)).toEqual({ targetTemperatureInC: 37 });

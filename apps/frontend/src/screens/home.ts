@@ -2,7 +2,23 @@
  * @file apps/frontend/src/screens/home.ts
  * @description The home screen: the Dyson account, the machines that are set up, and the way to add more.
  * @author Calvin Che
+ * @created 2026-10-19
+ * @version 1.1.0
  * @license Apache-2.0
+ *
+ * Copyright 2026 Calvin Che.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 import { loadState, removeDevice, search, signOut, startQueue, startSignIn } from '../actions.js';
@@ -50,7 +66,8 @@ function describeExposure(device: StoredDevice): string {
   if (has('hasAirflowDirection')) add(placeNames[device.airflowDirectionControl], 'the airflow direction');
   for (const [place, names] of byPlace) parts.push(`${names.join(', ')} ${place}`);
   if (has('hasHeat') && device.heatControl !== 'hidden') parts.push(device.heatControl === 'thermostat' ? 'a thermostat' : 'a heat switch');
-  if (has('hasHumidification') && device.humidificationControl !== 'hidden') parts.push(device.humidificationControl === 'select' ? 'a target humidity select' : 'humidify switches');
+  if (has('hasHumidification') && device.humidificationControl !== 'hidden')
+    parts.push(device.humidificationControl === 'select' ? 'a target humidity select' : 'humidify switches');
   const settings = settingControlKeys.filter((key) => device[key] && (controls === undefined || controls.settingControls.includes(key))).map((key) => settingNames[key]);
   if (settings.length > 0) parts.push(`a control for the ${settings.join(', ')}`);
   if (has('hasFilterLife') && device.deviceType === 'airPurifier') parts.push('the filter life');
@@ -60,9 +77,7 @@ function describeExposure(device: StoredDevice): string {
     has('hasAirQualitySensor') && device.hasAirQualitySensor && reported.airQuality ? 'air quality' : '',
     device.hasTemperatureSensor && reported.temperature ? 'temperature' : '',
     device.hasHumiditySensor && reported.humidity ? 'humidity' : '',
-  ].filter(
-    (name) => name !== '',
-  );
+  ].filter((name) => name !== '');
   if (sensors.length > 0) parts.push(`a sensor for the ${sensors.join(', ')}`);
   const list = parts.length === 1 ? parts[0] : `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]}`;
   return `${list}${device.isComposed ? ', all as one device' : ''}`;
@@ -142,6 +157,9 @@ function deviceRow(device: StoredDevice): HTMLElement {
       routeLine(device),
       ...reportLines(device.report),
       device.status !== 'online' && device.error ? h('p', { class: 'meta problem-text' }, device.error) : null,
+      device.needsRestart
+        ? h('p', { class: 'meta' }, h('strong', {}, 'Restart Matterbridge'), ' to apply the new options in Matter. Until then it keeps its current controls.')
+        : null,
     ),
     isConfirming
       ? h(
@@ -198,7 +216,9 @@ function accountPanel(): Child {
     'section',
     { class: 'account' },
     h('p', { class: 'meta' }, `Signed in to Dyson as ${account.email}.`),
-    account.needsSignIn ? h('p', { class: 'notice problem', role: 'alert' }, 'The Dyson cloud no longer accepts this sign-in. Sign in again to keep the machines connected.') : null,
+    account.needsSignIn
+      ? h('p', { class: 'notice problem', role: 'alert' }, 'The Dyson cloud no longer accepts this sign-in. Sign in again to keep the machines connected.')
+      : null,
     h('div', { class: 'actions' }, ...actions),
   );
 }
@@ -210,7 +230,9 @@ export function homeScreen(): Child[] {
     h('header', {}, h('h1', {}, 'Dyson machines'), canAdd ? button('Add machines', () => void search(), 'primary') : null),
     notice(),
     accountPanel(),
-    devices.length === 0 && view.setup ? h('p', { class: 'empty' }, 'No machine is set up yet. Add one to control it from Matter.') : h('ul', { class: 'devices' }, ...devices.map(deviceRow)),
+    devices.length === 0 && view.setup
+      ? h('p', { class: 'empty' }, 'No machine is set up yet. Add one to control it from Matter.')
+      : h('ul', { class: 'devices' }, ...devices.map(deviceRow)),
     view.setup ? null : button('Try again', () => void loadState(), 'primary'),
   ];
 }

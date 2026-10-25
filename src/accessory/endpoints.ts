@@ -3,7 +3,7 @@
  * @description This file contains the builders of the Matter endpoints of one machine.
  * @author Calvin Che
  * @created 2026-10-19
- * @version 1.0.0
+ * @version 1.1.0
  * @license Apache-2.0
  *
  * Copyright 2026 Calvin Che.
@@ -38,10 +38,12 @@ import {
 import { MatterbridgeFanControlServer } from 'matterbridge/behaviors';
 import { CommonNumberTag } from 'matterbridge/matter';
 import { NitrogenDioxideConcentrationMeasurementServer } from 'matterbridge/matter/behaviors';
-import { AirQuality, ConcentrationMeasurement, FanControl, type ModeSelect } from 'matterbridge/matter/clusters';
+import { AirQuality, BridgedDeviceBasicInformation, ConcentrationMeasurement, FanControl, type ModeSelect } from 'matterbridge/matter/clusters';
 import type { Semtag } from 'matterbridge/matter/types';
 
+import { maxDeviceNameLength } from '../config.js';
 import { composeDeviceName, defaultHeatTargetInC, getFanModeSequence, heatTargetRange } from '../mapping.js';
+import type { EndpointIds } from '../platform/endpointIds.js';
 import type { AccessoryLayout } from './layout.js';
 
 const vendorName = 'Dyson';
@@ -51,14 +53,72 @@ const maxProductNameLength = 32;
 
 /** What every endpoint of a device says about the device it belongs to. */
 export interface EndpointIdentity {
-  /** The device name. */
-  name: string;
+  /** The name the user gave the device: the label of the device in Matter, which is what the Matter apps show. */
+  label: string;
   /** The serial number of the machine, which neither a new name nor a new firmware changes. */
   serial: string;
-  /** The name the machine is sold under, such as `Purifier Cool`. */
+  /** The name the machine is sold under, such as `Purifier Cool`, as it was when the device was added: Matterbridge makes the unique id of the device from it, with the name, the serial number and the vendor name. */
   productName: string;
   /** The vendor id of the bridge, used for the bridged device information. */
   vendorId: number;
+  /** The endpoint ids of the device, which give an endpoint that comes back after it was taken away a new id. */
+  ids: EndpointIds;
+}
+
+/** What each endpoint beside the main one is, such as `Night Mode`, for the endpoints that are devices of their own in Matter. */
+const labels = new WeakMap<MatterbridgeEndpoint, string>();
+
+/**
+ * Get the name of a device in Matterbridge, which never changes
+ *
+ * Matterbridge derives the unique id of a bridged device from its name, which the Matter apps use to tell a device they
+ * know from a new one. The name is therefore made of the serial number of the machine, and the name the user gives the
+ * device is its label: see `getDeviceLabel`.
+ *
+ * @param {string} serial The serial number of the machine.
+ * @returns {string} The name, such as `Dyson NK6-EU-MHA0000A`.
+ */
+export function getDeviceName(serial: string): string {
+  return `${vendorName} ${serial}`;
+}
+
+/**
+ * Get the label of an endpoint of a device, which the Matter apps show as its name: the name the user gave the device,
+ * followed by what the endpoint is when it is not the main endpoint
+ *
+ * @param {MatterbridgeEndpoint} endpoint The endpoint: the main endpoint, or a device of its own beside it.
+ * @param {string} name The name the user gave the device.
+ * @returns {string} The label, of at most 32 characters.
+ */
+export function getDeviceLabel(endpoint: MatterbridgeEndpoint, name: string): string {
+  const label = labels.get(endpoint);
+  return label === undefined ? name.slice(0, maxDeviceNameLength) : composeDeviceName(name, label);
+}
+
+/**
+ * Write the name the user gave a device to the endpoints that are devices of their own in Matter
+ *
+ * @param {readonly MatterbridgeEndpoint[]} endpoints The endpoints: the main endpoint, and the devices of their own beside it.
+ * @param {string} name The name the user gave the device.
+ * @returns {Promise<void>} Resolves when every label is written.
+ */
+export async function applyDeviceLabel(endpoints: readonly MatterbridgeEndpoint[], name: string): Promise<void> {
+  for (const endpoint of endpoints) await endpoint.updateAttribute(BridgedDeviceBasicInformation, 'nodeLabel', getDeviceLabel(endpoint, name));
+}
+
+/**
+ * Give an endpoint its label from the start, before it is active
+ *
+ * @param {MatterbridgeEndpoint} endpoint The endpoint, with its bridged device basic information created.
+ * @param {EndpointIdentity} identity The device the endpoint belongs to.
+ * @param {string} [label] What the endpoint is, such as `Night Mode`, for a device of its own beside the main endpoint.
+ * @returns {MatterbridgeEndpoint} The endpoint.
+ */
+function setInitialLabel(endpoint: MatterbridgeEndpoint, identity: EndpointIdentity, label?: string): MatterbridgeEndpoint {
+  if (label !== undefined) labels.set(endpoint, label);
+  // oxlint-disable-next-line typescript/no-non-null-assertion -- the bridged device basic information was just created
+  endpoint.getClusterServerOptions(BridgedDeviceBasicInformation)!.nodeLabel = getDeviceLabel(endpoint, identity.label);
+  return endpoint;
 }
 
 /**
@@ -131,11 +191,18 @@ function addFanControl(endpoint: MatterbridgeEndpoint, layout: AccessoryLayout):
  */
 export function createMainEndpoint(identity: EndpointIdentity, layout: AccessoryLayout): MatterbridgeEndpoint {
   const deviceType = layout.deviceType === 'airPurifier' ? airPurifier : fan;
-  const endpoint = new MatterbridgeEndpoint([deviceType, bridgedNode, powerSource], { id: identity.serial })
+  const endpoint = new MatterbridgeEndpoint([deviceType, bridgedNode, powerSource], { id: identity.ids.resolve(identity.serial) })
     .createDefaultIdentifyClusterServer()
-    .createDefaultBridgedDeviceBasicInformationClusterServer(identity.name, identity.serial, identity.vendorId, vendorName, identity.productName.slice(0, maxProductNameLength))
+    .createDefaultBridgedDeviceBasicInformationClusterServer(
+      getDeviceName(identity.serial),
+      identity.serial,
+      identity.vendorId,
+      vendorName,
+      identity.productName.slice(0, maxProductNameLength),
+    )
     .createDefaultPowerSourceWiredClusterServer()
     .createOnOffClusterServer(false);
+  setInitialLabel(endpoint, identity);
   addFanControl(endpoint, layout);
   if (layout.hasHepaFilter) endpoint.createDefaultHepaFilterMonitoringClusterServer();
   if (layout.hasCarbonFilter) endpoint.createDefaultActivatedCarbonFilterMonitoringClusterServer();
@@ -149,14 +216,21 @@ export function createMainEndpoint(identity: EndpointIdentity, layout: Accessory
  * @param {EndpointIdentity} identity The device the endpoint belongs to.
  * @param {string} key What tells the endpoint apart in the endpoint id, such as `night-mode`.
  * @param {string} code What tells the endpoint apart in the serial number, after a dash: one letter.
- * @param {string} label What the endpoint is, such as `Night Mode`. It follows the device name in the name of the endpoint.
+ * @param {string} label What the endpoint is, such as `Night Mode`. It follows the name of the device in the name and in the label of the endpoint.
  * @returns {MatterbridgeEndpoint} The endpoint.
  */
 function createExtraEndpoint(deviceType: DeviceTypeDefinition, identity: EndpointIdentity, key: string, code: string, label: string): MatterbridgeEndpoint {
-  return new MatterbridgeEndpoint([deviceType, bridgedNode, powerSource], { id: `${identity.serial}-${key}` })
+  const endpoint = new MatterbridgeEndpoint([deviceType, bridgedNode, powerSource], { id: identity.ids.resolve(`${identity.serial}-${key}`) })
     .createDefaultIdentifyClusterServer()
-    .createDefaultBridgedDeviceBasicInformationClusterServer(composeDeviceName(identity.name, label), `${identity.serial}-${code}`, identity.vendorId, vendorName, `Dyson ${label}`)
+    .createDefaultBridgedDeviceBasicInformationClusterServer(
+      `${getDeviceName(identity.serial)} ${label}`,
+      `${identity.serial}-${code}`,
+      identity.vendorId,
+      vendorName,
+      `Dyson ${label}`,
+    )
     .createDefaultPowerSourceWiredClusterServer();
+  return setInitialLabel(endpoint, identity, label);
 }
 
 /**
@@ -166,13 +240,14 @@ function createExtraEndpoint(deviceType: DeviceTypeDefinition, identity: Endpoin
  * between the rooms of a Matter app with it, and is unreachable when it is.
  *
  * @param {MatterbridgeEndpoint} main The main endpoint the part is a part of.
+ * @param {EndpointIdentity} identity The device the part belongs to.
  * @param {DeviceTypeDefinition} deviceType What the endpoint is in Matter.
- * @param {string} key What tells the endpoint apart in the endpoint id, such as `night-mode`.
+ * @param {string} key What tells the endpoint apart, such as `night-mode`: the base of its endpoint id.
  * @param {Semtag} [tag] What tells the endpoint apart for a Matter app.
  * @returns {MatterbridgeEndpoint} The endpoint.
  */
-function createPartEndpoint(main: MatterbridgeEndpoint, deviceType: DeviceTypeDefinition, key: string, tag?: Semtag): MatterbridgeEndpoint {
-  return main.addChildDeviceType(key, deviceType, tag === undefined ? {} : { tagList: [tag] }).createDefaultIdentifyClusterServer();
+function createPartEndpoint(main: MatterbridgeEndpoint, identity: EndpointIdentity, deviceType: DeviceTypeDefinition, key: string, tag?: Semtag): MatterbridgeEndpoint {
+  return main.addChildDeviceType(identity.ids.resolve(key), deviceType, tag === undefined ? {} : { tagList: [tag] }).createDefaultIdentifyClusterServer();
 }
 
 /**
@@ -215,7 +290,7 @@ function createSideEndpoint(
   isTagged: boolean,
 ): MatterbridgeEndpoint {
   if (main === undefined) return createExtraEndpoint(deviceType, identity, key, code, label);
-  return createPartEndpoint(main, deviceType, key, isTagged ? getNumberTag(main, deviceType, label) : undefined);
+  return createPartEndpoint(main, identity, deviceType, key, isTagged ? getNumberTag(main, deviceType, label) : undefined);
 }
 
 /**

@@ -1,6 +1,7 @@
-// vitest.config.ts 2.0.8
+// vitest.config.ts 2.0.9
 
 // This Vitest configuration is designed for a TypeScript project.
+// The setup page under apps/frontend has no tests, so apps/ is left out of the tests and of the coverage.
 
 import { defineConfig } from 'vitest/config';
 
@@ -9,50 +10,20 @@ export default defineConfig({
   envDir: false,
   test: {
     include: ['**/vitest/**/*.{spec,test}.{ts,mts,cts}'],
-    exclude: [
-      '**/.cache/',
-      '**/apps/',
-      '**/build/',
-      '**/chip/',
-      '**/coverage/',
-      '**/dist/',
-      '**/node_modules/',
-      '**/out/',
-      '**/screenshots/',
-      '**/scripts/',
-      '**/src/mock/',
-      '**/temp/',
-      '**/tmp/',
-      '**/template/',
-    ],
+    exclude: ['**/.cache/', '**/apps/', '**/build/', '**/coverage/', '**/dist/', '**/node_modules/', '**/out/', '**/screenshots/', '**/scripts/', '**/temp/', '**/tmp/'],
     globals: true,
     clearMocks: false,
     restoreMocks: false,
     environment: 'node',
     maxWorkers: '100%',
+    reporters: ['default', 'junit'],
+    outputFile: { junit: '.cache/vitest/junit.xml' },
     coverage: {
       provider: 'v8',
       reportsDirectory: 'coverage/vitest',
       reporter: ['lcov', 'text', 'json'],
       include: ['**/src/**/*.{ts,mts,cts}'],
-      exclude: [
-        '**/.cache/',
-        '**/apps/',
-        '**/build/',
-        '**/chip/',
-        '**/coverage/',
-        '**/dist/',
-        '**/node_modules/',
-        '**/out/',
-        '**/screenshots/',
-        '**/scripts/',
-        '**/src/mock/',
-        '**/src/**/*.d.ts',
-        '**/temp/',
-        '**/tmp/',
-        '**/template/',
-        '**/vitest/**',
-      ],
+      exclude: ['**/.cache/', '**/apps/', '**/build/', '**/coverage/', '**/dist/', '**/node_modules/', '**/out/', '**/screenshots/', '**/scripts/', '**/temp/', '**/tmp/'],
     },
   },
 });

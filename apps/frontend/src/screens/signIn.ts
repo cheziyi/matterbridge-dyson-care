@@ -2,7 +2,23 @@
  * @file apps/frontend/src/screens/signIn.ts
  * @description The Sign in step: the address and the country of the Dyson account, then the code Dyson emails and the password.
  * @author Calvin Che
+ * @created 2026-10-19
+ * @version 1.0.0
  * @license Apache-2.0
+ *
+ * Copyright 2026 Calvin Che.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 import { goHome, requestCode, signIn } from '../actions.js';
@@ -42,7 +58,13 @@ function addressForm(): Child[] {
     void requestCode(email.value.trim(), code);
   };
   return [
-    h('div', { class: 'field' }, h('label', { for: 'email' }, 'Email address'), h('p', { class: 'help' }, 'The address you sign in to the MyDyson app with. Dyson emails it a code.'), email),
+    h(
+      'div',
+      { class: 'field' },
+      h('label', { for: 'email' }, 'Email address'),
+      h('p', { class: 'help' }, 'The address you sign in to the MyDyson app with. Dyson emails it a code.'),
+      email,
+    ),
     countryField(),
     h('div', { class: 'footer' }, button('Cancel', goHome), button('Email me a code', submit, 'primary')),
   ];

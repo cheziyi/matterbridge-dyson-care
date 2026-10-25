@@ -2,7 +2,23 @@
  * @file apps/frontend/src/actions.ts
  * @description What the setup page does: each action calls the plugin, changes the state of the page and redraws it.
  * @author Calvin Che
+ * @created 2026-10-19
+ * @version 1.1.0
  * @license Apache-2.0
+ *
+ * Copyright 2026 Calvin Che.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 import { api, type SetupState, type StoredDevice } from './api.js';
@@ -186,7 +202,9 @@ async function enterConnect(): Promise<void> {
 }
 
 export async function check(draft: Draft): Promise<void> {
-  const reply = await busy(`Connecting to ${draftLabel(draft)} through the Dyson cloud, and looking for it on your network…`, async () => api('POST probe', { machine: draft.machine }));
+  const reply = await busy(`Connecting to ${draftLabel(draft)} through the Dyson cloud, and looking for it on your network…`, async () =>
+    api('POST probe', { machine: draft.machine }),
+  );
   if (!reply.ok) {
     view.error = reply.error;
     render();
@@ -248,6 +266,9 @@ function checkName(draft: Draft, name: string): string {
 
 // Matterbridge does not tell its own page when a plugin adds or removes a device, so its device list waits for a reload.
 export const reloadNote = "Matterbridge's own list of devices shows the change once you reload its page.";
+
+/** A change of how a machine appears in Matter waits for a restart, which the plugin asks Matterbridge for as well. */
+export const restartNote = 'Restart Matterbridge to apply the new options in Matter: until then the machine keeps its current controls.';
 
 export async function removeDevice(device: StoredDevice): Promise<void> {
   const reply = await busy(`Removing ${device.name}…`, async () => api('DELETE device', undefined, `serialNumber=${encodeURIComponent(device.serialNumber)}`));

@@ -58,6 +58,7 @@ export const defaultHeatTargetInC = 21;
 /** The target humidities a humidifier takes in the MyDyson app, in percent. */
 export const humidityTargets = [30, 40, 50, 60, 70] as const;
 
+/** A target humidity a humidifier takes, in percent: one of `humidityTargets`. */
 export type HumidityTarget = (typeof humidityTargets)[number];
 
 /**

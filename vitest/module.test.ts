@@ -22,12 +22,13 @@ import {
   login,
   requestLoginCode,
 } from 'dyson-control';
-import type { PlatformConfig } from 'matterbridge';
+import type { MatterbridgeEndpoint, PlatformConfig } from 'matterbridge';
 import { BridgedDeviceBasicInformation, FanControl, TemperatureMeasurement } from 'matterbridge/matter/clusters';
-import { log, setupTest } from 'matterbridge/vitest-utils';
-import { addMatterbridge, createServerNode, createTestEnvironment, getMatterbridge, startServerNode, stopServerNode } from 'matterbridge/vitest-utils/matter';
+import { log, setupTest } from 'matterbridge/test-utils/vitest';
+import { addMatterbridge, createServerNode, createTestEnvironment, getMatterbridge, startServerNode, stopServerNode } from 'matterbridge/test-utils/vitest/matter';
 
 import type { MachineClientHandlers } from '../src/accessory/dysonAccessory.js';
+import type { DysonDeviceConfig } from '../src/config.js';
 import initializePlugin, { DysonPlatform, type DysonPlatformConfig, machineSyncIntervalInMs, machineTimeoutInMs } from '../src/module.js';
 import { account, coolFan, createDeviceConfig, createFakeClient, createSensors, type FakeClient, hotCool, purifierCool } from './fakeDyson.js';
 
@@ -113,6 +114,7 @@ await setupTest('DysonPlatform', false);
 describe('DysonPlatform', () => {
   const matterbridge = { ...getMatterbridge(), bridgeMode: 'bridge' as const };
   const saveConfig = vi.spyOn(DysonPlatform.prototype, 'saveConfig').mockImplementation(() => undefined);
+  const restartRequired = vi.spyOn(DysonPlatform.prototype, 'wssSendRestartRequired').mockImplementation(() => undefined);
   // The callbacks of the platform timers by period, so a test can fire one without waiting for it.
   const timers = new Map<number, () => void>();
   const startInterval = globalThis.setInterval;
@@ -144,6 +146,30 @@ describe('DysonPlatform', () => {
     await platform.pollDevices();
   }
 
+  /**
+   * Find a registered device by the label the Matter apps show
+   *
+   * @param {string} label The label, such as `Living Room Temperature`.
+   * @returns {MatterbridgeEndpoint | undefined} The device, when one has the label.
+   */
+  function byLabel(label: string): MatterbridgeEndpoint | undefined {
+    return platform.getDevices().find((device) => device.getAttribute(BridgedDeviceBasicInformation, 'nodeLabel') === label);
+  }
+
+  /**
+   * Shut the platform down, take its devices away and start a new one from its configuration, as a restart of Matterbridge does
+   *
+   * @returns {Promise<void>} Resolves when the new platform is started and configured.
+   */
+  async function restart(): Promise<void> {
+    await platform.onShutdown('restart');
+    await platform.unregisterAllDevices();
+    platform = initializePlugin(matterbridge, log, platform.config);
+    addMatterbridge(platform);
+    await platform.onStart('restart');
+    await platform.onConfigure();
+  }
+
   beforeAll(async () => {
     await createTestEnvironment();
     await createServerNode(6202);
@@ -161,13 +187,13 @@ describe('DysonPlatform', () => {
     vi.restoreAllMocks();
   });
 
-  it('should throw an error if matterbridge is not the required version', () => {
+  test('should throw an error if matterbridge is not the required version', () => {
     expect(() => new DysonPlatform({ ...matterbridge, matterbridgeVersion: '2.0.0' }, log, createConfig())).toThrow(
       'This plugin requires Matterbridge version >= "3.10.10". Please update Matterbridge from 2.0.0 to the latest version in the frontend.',
     );
   });
 
-  it('should warn of an account it cannot read, and start no device without one', async () => {
+  test('should warn of an account it cannot read, and start no device without one', async () => {
     // A machine of its own, which the platform of the tests that follow does not register.
     const study = createDeviceConfig(coolFan, { deviceType: 'fan', hasTemperatureSensor: false, hasHumiditySensor: false });
     const signedOut = initializePlugin(matterbridge, log, createConfig({ account: { token: 'x' }, devices: [study] }));
@@ -203,7 +229,7 @@ describe('DysonPlatform', () => {
     expect(cloud.unitFor(coolFan.serialNumber).disconnect).toHaveBeenCalled();
   });
 
-  it('should create the platform and report stored devices that are not valid', () => {
+  test('should create the platform and report stored devices that are not valid', () => {
     const config = createConfig({ account, devices: [livingRoom, { name: 'Broken' }], pollIntervalInSeconds: 20 });
     platform = initializePlugin(matterbridge, log, config);
     expect(platform).toBeInstanceOf(DysonPlatform);
@@ -212,12 +238,12 @@ describe('DysonPlatform', () => {
     expect(log.warn).toHaveBeenCalledTimes(1);
   });
 
-  it('should ignore a saved configuration before it is started', async () => {
+  test('should ignore a saved configuration before it is started', async () => {
     await platform.onConfigChanged(createConfig({ devices: [] }));
     expect(platform.getDevices()).toHaveLength(0);
   });
 
-  it('should start the stored devices and read the machine list', async () => {
+  test('should start the stored devices and read the machine list', async () => {
     await platform.onStart('Vitest');
     expect(log.info).toHaveBeenCalledWith(`Starting platform ${pluginName} with reason: Vitest...`);
     // No reading is known yet: the purifier alone.
@@ -227,29 +253,37 @@ describe('DysonPlatform', () => {
     expect(cloud.options.get(purifierCool.serialNumber)).toMatchObject({ account, timeoutInMs: machineTimeoutInMs });
   });
 
-  it('should build a device again in Matter once its machine gives its readings', async () => {
+  test('should note a reading its machine gives for the first time, and build a sensor for it at the next start', async () => {
     await platform.onConfigure();
     expect(log.info).toHaveBeenCalledWith(`Configuring platform ${pluginName}...`);
-    expect(log.notice).toHaveBeenCalledWith('"Living Room" gave a reading it shows nowhere in Matter yet: it is built again in Matter');
-    // The purifier, and a sensor each for the air quality, the temperature and the humidity.
-    await vi.waitFor(() => expect(platform.getDevices()).toHaveLength(4));
-    await settle();
-    expect(platform.getDeviceByName('Living Room Temperature')?.getAttribute(TemperatureMeasurement, 'measuredValue')).toBe(2150);
-    expect(platform.getDeviceByName('Living Room')?.getAttribute(FanControl, 'speedSetting')).toBe(4);
-  });
-
-  it('should store a new reading without building the device again when it has no place for it', async () => {
+    expect(log.notice).toHaveBeenCalledWith('"Living Room" gave a reading it shows nowhere in Matter yet');
+    expect(log.notice).toHaveBeenCalledWith('"Living Room" is built again with its new options at the next restart of Matterbridge: until then it keeps its current ones');
+    expect(restartRequired).toHaveBeenCalledTimes(1);
+    // The purifier keeps its one endpoint until the restart, and the setup page says so.
+    expect(platform.getDevices()).toHaveLength(1);
+    expect((await platform.getSetupState()).devices[0]).toMatchObject({ needsRestart: true, reportedSensors: { temperature: true, humidity: true, airQuality: true } });
+    // A reading the air quality sensor to come has no place for yet is noted too, and reported once.
     cloud.unitFor(purifierCool.serialNumber).sensors = createSensors({ carbonDioxideInPpm: 650, formaldehydeInUgPerM3: 3 });
+    vi.mocked(log.notice).mockClear();
     await platform.pollDevices();
-    // The air quality sensor has no place for them yet: the device is built again.
-    expect(log.notice).toHaveBeenCalledWith('"Living Room" gave a reading it shows nowhere in Matter yet: it is built again in Matter');
-    await settle();
-    vi.clearAllMocks();
+    expect(log.notice).toHaveBeenCalledWith('"Living Room" gave a reading it shows nowhere in Matter yet');
+    expect(log.notice).not.toHaveBeenCalledWith(expect.stringContaining('next restart'));
+    vi.mocked(log.notice).mockClear();
     await platform.pollDevices();
     expect(log.notice).not.toHaveBeenCalled();
+    expect(restartRequired).toHaveBeenCalledTimes(2);
+
+    // The next start builds the purifier with a sensor each for the air quality, the temperature and the humidity.
+    await restart();
+    expect(platform.getDevices()).toHaveLength(4);
+    expect((await platform.getSetupState()).devices[0]).toMatchObject({ needsRestart: false });
+    await settle();
+    expect(byLabel('Living Room Temperature')?.getAttribute(TemperatureMeasurement, 'measuredValue')).toBe(2150);
+    expect(byLabel('Living Room')?.getAttribute(FanControl, 'speedSetting')).toBe(4);
+    expect(byLabel('Living Room Air Quality')?.getAttribute('CarbonDioxideConcentrationMeasurement', 'measuredValue')).toBe(650);
   });
 
-  it('should read the machines on the timers', async () => {
+  test('should read the machines on the timers', async () => {
     timerCallback(20_000)();
     await vi.waitFor(() => expect(cloud.unitFor(purifierCool.serialNumber).getState).toHaveBeenCalled());
     timerCallback(machineSyncIntervalInMs)();
@@ -257,20 +291,21 @@ describe('DysonPlatform', () => {
     await settle();
   });
 
-  it('should read each device once when two polls overlap, and the machine list once when two reads overlap', async () => {
+  test('should read each device once when two polls overlap, and the machine list once when two reads overlap', async () => {
     await Promise.all([platform.pollDevices(), platform.pollDevices()]);
     expect(cloud.unitFor(purifierCool.serialNumber).getState).toHaveBeenCalledTimes(1);
     await Promise.all([platform.syncMachines(), platform.syncMachines()]);
     expect(getMachines).toHaveBeenCalledTimes(1);
   });
 
-  it('should describe the account without its token, and the devices with how they are doing', async () => {
+  test('should describe the account without its token, and the devices with how they are doing', async () => {
     const state = await platform.getSetupState();
     expect(state.account).toEqual({ email: account.email, country: 'GB', needsSignIn: false });
     expect(state.devices).toHaveLength(1);
     expect(state.devices[0]).toMatchObject({
       name: 'Living Room',
       status: 'online',
+      needsRestart: false,
       capabilities: { autoMode: true },
       controls: { oscillationAngles: [45, 90, 180, 350] },
       reportedSensors: { temperature: true, pm25: true, carbonDioxide: true },
@@ -278,14 +313,14 @@ describe('DysonPlatform', () => {
     expect(await platform.onFetch('GET', 'state')).toEqual({ ok: true, state });
   });
 
-  it('should pass the countries and the login code through to the cloud', async () => {
+  test('should pass the countries and the login code through to the cloud', async () => {
     expect(await platform.getCountries()).toEqual(['GB', 'US']);
     vi.mocked(requestLoginCode).mockResolvedValueOnce('challenge-1');
     expect(await platform.requestLoginCode('someone@example.com', 'GB')).toBe('challenge-1');
     expect(requestLoginCode).toHaveBeenCalledWith({ email: 'someone@example.com', country: 'GB', timeoutInMs: machineTimeoutInMs });
   });
 
-  it('should explain and log a sign in the cloud refuses', async () => {
+  test('should explain and log a sign in the cloud refuses', async () => {
     vi.mocked(requestLoginCode).mockRejectedValueOnce(new DysonError('Dyson request to /v3/userregistration/email/auth failed', 401));
     await expect(platform.requestLoginCode('someone@example.com', 'GB')).rejects.toThrow(
       'Dyson refused the address: check that it is the email address you sign in to the MyDyson app with. An account that signs in with a mobile number is not supported (HTTP 401)',
@@ -298,7 +333,7 @@ describe('DysonPlatform', () => {
     expect(platform.config.account).toEqual(account);
   });
 
-  it('should mark the machines of the account for the setup page', async () => {
+  test('should mark the machines of the account for the setup page', async () => {
     vi.mocked(getMachines).mockResolvedValueOnce([purifierCool, hotCool, { ...coolFan, name: 'Bedroom' }, { serialNumber: 'R2D2', type: '276', category: 'robot', name: 'Robot' }]);
     expect(await platform.listMachines()).toEqual([
       { ...purifierCool, isConfigured: true, support: 'supported' },
@@ -310,7 +345,7 @@ describe('DysonPlatform', () => {
     expect(saveConfig).not.toHaveBeenCalled();
   });
 
-  it('should check a machine for the setup page and keep what its sensors read', async () => {
+  test('should check a machine for the setup page and keep what its sensors read', async () => {
     const result = await platform.probe(hotCool);
     expect(result).toMatchObject({ status: 'ready', machine: hotCool, controls: { hasHeat: true }, reportedSensors: { temperature: true, humidity: true, carbonDioxide: false } });
     expect(cloud.unitFor(hotCool.serialNumber).disconnect).toHaveBeenCalledTimes(1);
@@ -320,7 +355,7 @@ describe('DysonPlatform', () => {
     cloud.unitFor(purifierCool.serialNumber).sensors.carbonDioxideInPpm = 650;
   });
 
-  it('should add a device with the readings its check gave, and refuse a name another device has', async () => {
+  test('should add a device with the readings its check gave, and refuse a name another device has', async () => {
     // The cloud takes a moment to connect a new client: the device is connecting until its first read ends.
     let connected = (): void => undefined;
     cloud.unitFor(hotCool.serialNumber).connect.mockImplementationOnce(
@@ -337,25 +372,38 @@ describe('DysonPlatform', () => {
     expect(saveConfig).toHaveBeenCalledWith(expect.objectContaining({ devices: [livingRoom, bedroom, { name: 'Broken' }] }));
     // One composed device, with the readings of the check: one endpoint.
     expect(platform.getDevices()).toHaveLength(5);
-    expect(platform.getDeviceByName('Bedroom')?.getChildEndpoints().length).toBeGreaterThan(3);
+    expect(platform.getDeviceBySerialNumber(hotCool.serialNumber)?.getChildEndpoints().length).toBeGreaterThan(3);
     await expect(platform.saveDevice({ ...bedroom, serialNumber: 'NK6-EU-MHA0042A' })).rejects.toThrow('Another machine is already named "Bedroom"');
     await settle();
   });
 
-  it('should fit a saved device to what its machine takes', async () => {
+  test('should fit a saved device to what its machine takes, and keep its endpoints until Matterbridge restarts', async () => {
+    const before = platform.getDeviceBySerialNumber(hotCool.serialNumber);
     await platform.saveDevice({ ...bedroom, humidificationControl: 'switches', airflowDirectionControl: 'switch' });
     expect(platform.config.devices).toEqual([livingRoom, { ...bedroom, airflowDirectionControl: 'switch' }, { name: 'Broken' }]);
+    // The new switch comes at the next restart: the device keeps its endpoints, and the setup page says so.
+    expect(log.info).not.toHaveBeenCalledWith('"Bedroom" stopped');
+    expect(log.notice).toHaveBeenCalledWith('"Bedroom" is built again with its new options at the next restart of Matterbridge: until then it keeps its current ones');
+    expect(restartRequired).toHaveBeenCalledTimes(1);
+    expect(platform.getDeviceBySerialNumber(hotCool.serialNumber)).toBe(before);
+    expect((await platform.getSetupState()).devices[1]).toMatchObject({ airflowDirectionControl: 'switch', needsRestart: true });
+    // A second change is noted once more, without a second notice.
+    vi.mocked(log.notice).mockClear();
+    await platform.saveDevice({ ...bedroom, airflowDirectionControl: 'switch', nightModeControl: 'switch' });
+    expect(restartRequired).toHaveBeenCalledTimes(2);
+    expect(log.notice).not.toHaveBeenCalled();
+    await platform.saveDevice(bedroom);
     await settle();
   });
 
-  it('should keep the name of a device when the room name of its machine changes in the MyDyson app', async () => {
-    const device = platform.getDeviceByName('Living Room');
+  test('should keep the name of a device when the room name of its machine changes in the MyDyson app', async () => {
+    const device = platform.getDeviceBySerialNumber(purifierCool.serialNumber);
     listed = [{ ...purifierCool, name: 'Bedroom' }, hotCool];
     await platform.syncMachines();
     // The new room name is stored for the setup page, and the device stays as it was built.
     expect(saveConfig).toHaveBeenCalledTimes(1);
     expect(platform.config.devices).toEqual(expect.arrayContaining([expect.objectContaining({ name: 'Living Room', roomName: 'Bedroom' })]));
-    expect(platform.getDeviceByName('Living Room')).toBe(device);
+    expect(platform.getDeviceBySerialNumber(purifierCool.serialNumber)).toBe(device);
     // Another change of the machine is taken, without a new name or a notice of a new firmware.
     listed = [{ ...purifierCool, name: 'Bedroom', mqttRootTopicLevel: '438M' }, hotCool];
     await platform.syncMachines();
@@ -365,8 +413,8 @@ describe('DysonPlatform', () => {
     await settle();
   });
 
-  it('should reach a machine on the LAN first once the machine list gives the password of its broker, which the setup page never sees', async () => {
-    const device = platform.getDeviceByName('Living Room');
+  test('should reach a machine on the LAN first once the machine list gives the password of its broker, which the setup page never sees', async () => {
+    const device = platform.getDeviceBySerialNumber(purifierCool.serialNumber);
     const clientOptions = (): Record<string, unknown> => ({ ...(cloud.options.get(purifierCool.serialNumber) as object) });
     listed = [{ ...purifierCool, name: 'Bedroom', apPasswordHash: 'hash-1' }, hotCool];
     await platform.syncMachines();
@@ -374,7 +422,7 @@ describe('DysonPlatform', () => {
     // Connected anew, without building the device again, and without a host: dyson-control searches the LAN for it.
     expect(clientOptions()).toMatchObject({ account, timeoutInMs: machineTimeoutInMs });
     expect(clientOptions().host).toBeUndefined();
-    expect(platform.getDeviceByName('Living Room')).toBe(device);
+    expect(platform.getDeviceBySerialNumber(purifierCool.serialNumber)).toBe(device);
     const [shown] = (await platform.getSetupState()).devices;
     expect(shown).toMatchObject({ name: 'Living Room', isTriedOnLan: true });
     expect(shown).not.toHaveProperty('apPasswordHash');
@@ -383,7 +431,7 @@ describe('DysonPlatform', () => {
     await platform.saveDevice({ ...livingRoom, roomName: 'Bedroom', host: '192.168.1.20' });
     expect(platform.config.devices).toEqual(expect.arrayContaining([expect.objectContaining({ host: '192.168.1.20', apPasswordHash: 'hash-1' })]));
     expect(clientOptions()).toMatchObject({ host: '192.168.1.20' });
-    expect(platform.getDeviceByName('Living Room')).toBe(device);
+    expect(platform.getDeviceBySerialNumber(purifierCool.serialNumber)).toBe(device);
     // The check of the setup page searches the LAN beside the cloud, with the password the page never sees.
     expect(await platform.probe(purifierCool)).toMatchObject({ status: 'ready', isFoundOnLan: true });
     cloud.unitFor(purifierCool.serialNumber).connect.mockResolvedValueOnce(undefined).mockRejectedValueOnce(new DysonError('No machine answered the search', 504));
@@ -392,7 +440,7 @@ describe('DysonPlatform', () => {
     await platform.saveDevice({ ...livingRoom, roomName: 'Bedroom', isCloudOnly: true });
     expect(clientOptions()).toMatchObject({ account, local: false });
     expect(clientOptions().host).toBeUndefined();
-    expect(platform.getDeviceByName('Living Room')).toBe(device);
+    expect(platform.getDeviceBySerialNumber(purifierCool.serialNumber)).toBe(device);
     expect((await platform.getSetupState()).devices[0]).toMatchObject({ isCloudOnly: true, isTriedOnLan: false });
     await platform.saveDevice({ ...livingRoom, roomName: 'Bedroom' });
     expect(clientOptions().local).toBeUndefined();
@@ -407,26 +455,44 @@ describe('DysonPlatform', () => {
     await settle();
   });
 
-  it('should build a device again under the name it is given in the setup page', async () => {
+  test('should give a device the name it is given in the setup page as its label, without building it again', async () => {
+    const device = platform.getDeviceBySerialNumber(purifierCool.serialNumber);
+    expect(device?.getAttribute(BridgedDeviceBasicInformation, 'nodeLabel')).toBe('Living Room');
     await platform.saveDevice({ ...livingRoom, name: 'Lounge' });
-    expect(platform.getDeviceByName('Lounge')).toBeDefined();
-    expect(platform.getDeviceByName('Living Room')).toBeUndefined();
+    expect(log.info).not.toHaveBeenCalledWith('"Living Room" stopped');
+    expect(log.info).toHaveBeenCalledWith('"Living Room" is now named "Lounge"');
+    expect(restartRequired).not.toHaveBeenCalled();
+    // The name in Matterbridge is made of the serial number, so that the identity of the device in Matter never changes: the name given is its label.
+    expect(platform.getDeviceBySerialNumber(purifierCool.serialNumber)).toBe(device);
+    expect(device?.deviceName).toBe(`Dyson ${purifierCool.serialNumber}`);
+    expect(device?.getAttribute(BridgedDeviceBasicInformation, 'nodeLabel')).toBe('Lounge');
+    expect(byLabel('Lounge Temperature')).toBeDefined();
+    expect(byLabel('Living Room Temperature')).toBeUndefined();
+    expect((await platform.getSetupState()).devices[0]).toMatchObject({ name: 'Lounge', needsRestart: false });
     await settle();
   });
 
-  it('should build a machine again when its firmware gives it other controls, and only connect anew otherwise', async () => {
+  test('should note a machine for the next restart when its firmware gives it other controls, and only connect anew otherwise', async () => {
+    const device = platform.getDeviceBySerialNumber(purifierCool.serialNumber);
     listed = [{ ...purifierCool, name: 'Lounge', firmwareVersion: '0700.1' }, hotCool];
     await platform.syncMachines();
     expect(log.notice).toHaveBeenCalledWith('"Lounge" now runs the firmware 0700.1');
     expect(log.notice).not.toHaveBeenCalledWith(expect.stringContaining('takes other settings'));
+    expect(restartRequired).not.toHaveBeenCalled();
     listed = [{ ...purifierCool, name: 'Lounge', firmwareVersion: undefined, firmwareCapabilities: ['AdvanceOscillationDay0'] }, hotCool];
     await platform.syncMachines();
     expect(log.notice).toHaveBeenCalledWith('"Lounge" now runs the firmware the cloud does not name');
-    expect(log.notice).toHaveBeenCalledWith('"Lounge" takes other settings than when it was set up: it is built again in Matter');
+    expect(log.notice).toHaveBeenCalledWith('"Lounge" takes other settings than when it was set up');
+    expect(log.notice).toHaveBeenCalledWith('"Lounge" is built again with its new options at the next restart of Matterbridge: until then it keeps its current ones');
+    expect(restartRequired).toHaveBeenCalledTimes(1);
+    // The device keeps the endpoints it was built with, connected anew to the machine.
+    expect(log.info).not.toHaveBeenCalledWith('"Lounge" stopped');
+    expect(platform.getDeviceBySerialNumber(purifierCool.serialNumber)).toBe(device);
+    expect((await platform.getSetupState()).devices[0]).toMatchObject({ needsRestart: true });
     await settle();
   });
 
-  it('should log a machine list it cannot read, and ask for a new sign in when the cloud refuses the account', async () => {
+  test('should log a machine list it cannot read, and ask for a new sign in when the cloud refuses the account', async () => {
     vi.mocked(getMachines).mockRejectedValueOnce(new Error('getaddrinfo ENOTFOUND'));
     await platform.syncMachines();
     expect(log.warn).toHaveBeenCalledWith('The machines of the Dyson account could not be read: getaddrinfo ENOTFOUND');
@@ -439,7 +505,7 @@ describe('DysonPlatform', () => {
     expect((await platform.getSetupState()).account?.needsSignIn).toBe(false);
   });
 
-  it('should ask for a new sign in when a machine or a check is refused the credentials of the account', async () => {
+  test('should ask for a new sign in when a machine or a check is refused the credentials of the account', async () => {
     const unit = cloud.unitFor(purifierCool.serialNumber);
     unit.getState.mockRejectedValueOnce(new DysonError('Unauthorized', 401));
     await platform.pollDevices();
@@ -450,7 +516,7 @@ describe('DysonPlatform', () => {
     await settle();
   });
 
-  it('should sign in, store the account and connect the devices through it', async () => {
+  test('should sign in, store the account and connect the devices through it', async () => {
     const signedIn = { ...account, token: 'token-2' };
     vi.mocked(login).mockResolvedValueOnce(signedIn);
     await platform.signIn({ email: account.email, password: 'secret', challengeId: 'challenge-1', otpCode: '123456', country: 'GB' });
@@ -469,12 +535,12 @@ describe('DysonPlatform', () => {
     await settle();
   });
 
-  it('should sign out and leave the devices in Matter, unreachable', async () => {
+  test('should sign out and leave the devices in Matter, unreachable', async () => {
     await platform.signOut();
     expect(platform.config.account).toBeUndefined();
     expect(log.notice).toHaveBeenCalledWith('Signed out of the Dyson account');
     expect(platform.getDevices()).toHaveLength(5);
-    expect(platform.getDeviceByName('Lounge')?.getAttribute(BridgedDeviceBasicInformation, 'reachable')).toBe(false);
+    expect(platform.getDeviceBySerialNumber(purifierCool.serialNumber)?.getAttribute(BridgedDeviceBasicInformation, 'reachable')).toBe(false);
     await platform.pollDevices();
     await platform.syncMachines();
     expect(getMachines).not.toHaveBeenCalled();
@@ -483,14 +549,14 @@ describe('DysonPlatform', () => {
     expect(state.devices[0]).toMatchObject({ status: 'offline' });
   });
 
-  it('should connect the devices again when an account is signed in again', async () => {
+  test('should connect the devices again when an account is signed in again', async () => {
     vi.mocked(login).mockResolvedValueOnce(account);
     await platform.signIn({ email: account.email, password: 'secret', challengeId: 'challenge-2', otpCode: '654321', country: 'GB' });
     await settle();
-    expect(platform.getDeviceByName('Lounge')?.getAttribute(BridgedDeviceBasicInformation, 'reachable')).toBe(true);
+    expect(platform.getDeviceBySerialNumber(purifierCool.serialNumber)?.getAttribute(BridgedDeviceBasicInformation, 'reachable')).toBe(true);
   });
 
-  it('should retry a device that could not start at the next read of the machine list', async () => {
+  test('should retry a device that could not start at the next read of the machine list', async () => {
     const unknown = createDeviceConfig({ ...coolFan, type: '999', name: 'Mystery', serialNumber: 'NK6-EU-MHA0077A' });
     await platform.saveDevice(unknown);
     expect(log.warn).toHaveBeenCalledWith('"Mystery" could not be started and will be retried: 999 is no known type of environmental care machine');
@@ -502,7 +568,7 @@ describe('DysonPlatform', () => {
     expect(await platform.removeDevice(unknown.serialNumber)).toBe(true);
   });
 
-  it('should log a change to the devices that fails, and unregister the endpoints of a device that could not start', async () => {
+  test('should log a change to the devices that fails, and unregister the endpoints of a device that could not start', async () => {
     saveConfig.mockImplementationOnce(() => {
       throw new Error('The disk is full');
     });
@@ -512,24 +578,77 @@ describe('DysonPlatform', () => {
     const register = vi.spyOn(platform, 'registerDevice');
     register.mockImplementationOnce(registerForReal).mockRejectedValueOnce(new Error('The aggregator is full'));
     const unregister = vi.spyOn(platform, 'unregisterDevice');
-    // Bedroom as devices of its own: the purifier registers, its thermostat does not.
-    await platform.saveDevice({ ...bedroom, isComposed: false });
-    expect(log.warn).toHaveBeenCalledWith('"Bedroom" could not be started and will be retried: The aggregator is full');
-    // The composed device of before, and the purifier that registered before its thermostat failed.
-    expect(unregister).toHaveBeenCalledTimes(2);
+    // A fan with a switch as devices of their own: the fan registers, its switch does not.
+    const study = createDeviceConfig(
+      { ...coolFan, serialNumber: 'NK6-EU-MHA0044A' },
+      { deviceType: 'fan', nightModeControl: 'switch', hasTemperatureSensor: false, hasHumiditySensor: false, isComposed: false },
+    );
+    await platform.saveDevice(study);
+    expect(log.warn).toHaveBeenCalledWith('"Study" could not be started and will be retried: The aggregator is full');
+    // The fan that registered before its switch failed.
+    expect(unregister).toHaveBeenCalledTimes(1);
     register.mockRestore();
     unregister.mockRestore();
+    expect(await platform.removeDevice(study.serialNumber)).toBe(true);
     await settle();
   });
 
-  it('should remove a device and forget it', async () => {
+  test('should remove a device and forget it', async () => {
     expect(await platform.removeDevice(bedroom.serialNumber)).toBe(true);
     expect(await platform.removeDevice(bedroom.serialNumber)).toBe(false);
-    expect(platform.getDeviceByName('Bedroom')).toBeUndefined();
+    expect(platform.getDeviceBySerialNumber(hotCool.serialNumber)).toBeUndefined();
     expect(platform.config.devices).toEqual([expect.objectContaining({ name: 'Lounge' }), { name: 'Broken' }]);
   });
 
-  it('should take a new poll interval from the config editor, and restore the devices of an older page', async () => {
+  test('should give an endpoint that comes back after it was taken away a new id, so that it gets a new endpoint number', async () => {
+    const machine = { ...purifierCool, serialNumber: 'NK6-EU-MHA0099A', name: 'Attic' };
+    const serial = machine.serialNumber;
+    const withSwitch = createDeviceConfig(machine, {
+      nightModeControl: 'switch',
+      hasAirQualitySensor: false,
+      hasTemperatureSensor: false,
+      hasHumiditySensor: false,
+      isComposed: false,
+    });
+    const startWith = async (devices: DysonDeviceConfig[]): Promise<DysonPlatform> => {
+      const started = initializePlugin(matterbridge, log, createConfig({ account, devices }));
+      addMatterbridge(started);
+      await started.onStart();
+      await started.syncMachines();
+      return started;
+    };
+    const stop = async (started: DysonPlatform): Promise<void> => {
+      await started.onShutdown();
+      await started.unregisterAllDevices();
+    };
+
+    // Never built before: every endpoint has its base id.
+    const first = await startWith([withSwitch]);
+    expect(first.getDeviceById(serial)).toBeDefined();
+    expect(first.getDeviceById(`${serial}-night-mode`)).toBeDefined();
+    await stop(first);
+
+    // The switch is taken away. matter.js still holds the endpoint number its id had.
+    const second = await startWith([{ ...withSwitch, nightModeControl: 'native' }]);
+    expect(second.getDeviceById(`${serial}-night-mode`)).toBeUndefined();
+    await stop(second);
+
+    // Brought back, the switch has a new id, so that it gets a new endpoint number instead of its old one: for the
+    // Matter apps it is a new device, not the one they lost. The purifier, which stayed, keeps its id.
+    const third = await startWith([withSwitch]);
+    expect(third.getDeviceById(`${serial}-night-mode`)).toBeUndefined();
+    expect(third.getDeviceById(`${serial}-night-mode-1`)).toBeDefined();
+    expect(third.getDeviceById(serial)).toBeDefined();
+
+    // The ids outlive a removal of the device: added again, the switch keeps its new id.
+    expect(await third.removeDevice(serial)).toBe(true);
+    await third.saveDevice(withSwitch);
+    expect(third.getDeviceById(`${serial}-night-mode-1`)).toBeDefined();
+    expect(await third.removeDevice(serial)).toBe(true);
+    await stop(third);
+  });
+
+  test('should take a new poll interval from the config editor, and restore the devices of an older page', async () => {
     const stored = { ...platform.config } as PlatformConfig;
     // What the plugin stored itself comes back with nothing to apply.
     await platform.onConfigChanged(stored);
@@ -542,12 +661,12 @@ describe('DysonPlatform', () => {
     expect(saveConfig).toHaveBeenCalledWith(expect.objectContaining({ devices: [expect.objectContaining({ serialNumber: purifierCool.serialNumber }), { name: 'Broken' }] }));
   });
 
-  it('should log a change of the logger level', async () => {
+  test('should log a change of the logger level', async () => {
     await platform.onChangeLoggerLevel('debug' as never);
     expect(log.info).toHaveBeenCalledWith('onChangeLoggerLevel called with: debug');
   });
 
-  it('should shut down, disconnect the machines and unregister the devices when asked to', async () => {
+  test('should shut down, disconnect the machines and unregister the devices when asked to', async () => {
     platform.config.unregisterOnShutdown = true;
     await platform.onShutdown('Vitest');
     expect(cloud.unitFor(purifierCool.serialNumber).disconnect).toHaveBeenCalled();

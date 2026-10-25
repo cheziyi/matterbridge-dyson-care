@@ -3,7 +3,7 @@
  * @description This file contains the bridge between one Dyson machine and its Matter endpoints.
  * @author Calvin Che
  * @created 2026-10-19
- * @version 1.0.0
+ * @version 1.1.0
  * @license Apache-2.0
  *
  * Copyright 2026 Calvin Che.
@@ -37,12 +37,14 @@ import type { AnsiLogger } from 'matterbridge/logger';
 import { type ActionContext, Node } from 'matterbridge/matter';
 import { BridgedDeviceBasicInformation, FanControl, ModeSelect, OnOff, Thermostat, ThermostatUserInterfaceConfiguration } from 'matterbridge/matter/clusters';
 
-import type { DysonDeviceConfig, SettingControlKey } from '../config.js';
+import { type DysonDeviceConfig, type SettingControlKey, withExposureOf } from '../config.js';
 import { addReportedSensors, noReportedSensors, type ReportedSensors } from '../controls.js';
 import { getErrorMessage, getErrorStatus } from '../errors.js';
 import { findAndFollowSelectChoices, humiditySelectChoices, oscillationSelectChoices, type SelectChoices, tiltSelectChoices, toModeOptions } from '../mapping.js';
+import { EndpointIds } from '../platform/endpointIds.js';
 import { type SettingSelect, settingControls } from '../settingControls.js';
 import {
+  applyDeviceLabel,
   createAirQualityEndpoint,
   createHumidityEndpoint,
   createMainEndpoint,
@@ -87,6 +89,7 @@ export interface MachineClientHandlers {
 /** Creates the client of a machine, wired to the handlers of its accessory. */
 export type MachineClientFactory = (handlers: MachineClientHandlers) => MachineClient;
 
+/** What a device is built from: its stored configuration, the factory of the client of its machine, the readings the machine has given and the logger. */
 export interface DysonAccessoryOptions {
   config: DysonDeviceConfig;
   createClient: MachineClientFactory;
@@ -95,6 +98,8 @@ export interface DysonAccessoryOptions {
   log: AnsiLogger;
   /** The vendor id of the bridge, used for the bridged device information. */
   vendorId: number;
+  /** The endpoint ids of the device, which give an endpoint that comes back after it was taken away a new id. Defaults to the base ids. */
+  ids?: EndpointIds;
   /** How long to collect the writes of a controller before sending them. Defaults to 300 milliseconds. */
   commandDelayInMs?: number;
 }
@@ -154,7 +159,10 @@ function ignore(): void {
  * the controllers and the states the machine sends, and runs the reads and the commands one after the other.
  */
 export class DysonAccessory implements AccessoryEndpoints {
-  readonly name: string;
+  /** The name the user gave the device, which is its label in Matter. */
+  name: string;
+  /** What the machine takes, as the endpoints were built from it. */
+  readonly capabilities: MachineClient['capabilities'];
   readonly endpoint: MatterbridgeEndpoint;
   readonly fanAutoSwitch: MatterbridgeEndpoint | undefined;
   readonly oscillationSwitch: MatterbridgeEndpoint | undefined;
@@ -175,8 +183,8 @@ export class DysonAccessory implements AccessoryEndpoints {
   readonly airQualitySensor: MatterbridgeEndpoint | undefined;
   readonly temperatureSensor: MatterbridgeEndpoint | undefined;
   readonly humiditySensor: MatterbridgeEndpoint | undefined;
-  private readonly config: DysonDeviceConfig;
-  /** The readings the machine is known to have given: those the endpoints were built for, and any since that needs no place in Matter. */
+  private config: DysonDeviceConfig;
+  /** The readings the machine is known to have given: those the endpoints were built for, and those noted since, which get their place at the next start of Matterbridge. */
   private reportedSensors: ReportedSensors;
   private client: MachineClient;
   private readonly log: AnsiLogger;
@@ -233,9 +241,10 @@ export class DysonAccessory implements AccessoryEndpoints {
     this.log = options.log;
     this.commandDelayInMs = options.commandDelayInMs ?? defaultCommandDelayInMs;
     this.name = options.config.name;
+    this.capabilities = this.client.capabilities;
     const productName = options.config.productName ?? `Dyson ${options.config.type}`;
-    this.identity = { name: this.name, serial: options.config.serialNumber, productName, vendorId: options.vendorId };
-    this.layout = getAccessoryLayout(options.config, this.client.capabilities, this.reportedSensors);
+    this.identity = { label: this.name, serial: options.config.serialNumber, productName, vendorId: options.vendorId, ids: options.ids ?? new EndpointIds() };
+    this.layout = getAccessoryLayout(options.config, this.capabilities, this.reportedSensors);
 
     this.endpoint = this.createMain();
     if (this.layout.isComposed) this.parent = this.endpoint;
@@ -338,18 +347,11 @@ export class DysonAccessory implements AccessoryEndpoints {
   }
 
   /**
-   * Get what the machine takes, as the endpoints were built from it
+   * Take the readings the machine gave for the first time, and tell whether the device lacks a place for one of them
    *
-   * @returns {MachineClient['capabilities']} The capabilities of the machine.
-   */
-  get capabilities(): MachineClient['capabilities'] {
-    return this.client.capabilities;
-  }
-
-  /**
-   * Take the readings the machine gave for the first time, and tell whether the device has to be built again for them
-   *
-   * A reading with no place in Matter, such as a temperature without a temperature sensor, is taken as known at once.
+   * The readings are noted either way, so that they are reported once. A reading with no place in Matter, such as a
+   * temperature without a temperature sensor, needs none. One with a place to come gets it when the device is built
+   * again, at the next start of Matterbridge.
    *
    * @returns {{ reported: ReportedSensors; needsRebuild: boolean } | undefined} Every reading the machine has given, and whether the endpoints lack a place for one, or undefined when the last readings gave nothing new.
    */
@@ -357,8 +359,8 @@ export class DysonAccessory implements AccessoryEndpoints {
     if (this.sensors === undefined) return undefined;
     const reported = addReportedSensors(this.reportedSensors, this.sensors);
     if (reported === this.reportedSensors) return undefined;
-    const needsRebuild = JSON.stringify(getAccessoryLayout(this.config, this.client.capabilities, reported)) !== JSON.stringify(this.layout);
-    if (!needsRebuild) this.reportedSensors = reported;
+    const needsRebuild = JSON.stringify(getAccessoryLayout(this.config, this.capabilities, reported)) !== JSON.stringify(this.layout);
+    this.reportedSensors = reported;
     return { reported, needsRebuild };
   }
 
@@ -416,7 +418,8 @@ export class DysonAccessory implements AccessoryEndpoints {
   /**
    * Switch to a new client, after the account the machine is reached through changed
    *
-   * The new client must take what the old one took: a machine whose capabilities changed is built again instead.
+   * The endpoints keep what the old client took: a machine whose capabilities changed is built again at the next start
+   * of Matterbridge.
    *
    * @param {MachineClientFactory} createClient The factory of the new client.
    * @returns {Promise<boolean>} Resolves when the previous client is disconnected and the new one has read the machine: true when it answered.
@@ -431,6 +434,25 @@ export class DysonAccessory implements AccessoryEndpoints {
       await this.disconnectClient(previous);
       return this.readAndApply(true);
     });
+  }
+
+  /**
+   * Take a new configuration: the name, the connection and whatever else changes no endpoint
+   *
+   * A new name is written to the label of each endpoint that is a device of its own in Matter, which is what the Matter
+   * apps show. The settings that decide the endpoints stay as the device was built: a change of them reaches Matter
+   * when the device is built again, at the next start of Matterbridge.
+   *
+   * @param {DysonDeviceConfig} config The updated device.
+   * @returns {Promise<void>} Resolves when a new name is written to the endpoints.
+   */
+  async updateConfig(config: DysonDeviceConfig): Promise<void> {
+    const previous = this.name;
+    this.config = withExposureOf(config, this.config);
+    if (config.name === previous) return;
+    this.name = config.name;
+    await applyDeviceLabel(this.endpoints, config.name);
+    this.log.info(`"${previous}" is now named "${config.name}"`);
   }
 
   /**
@@ -536,7 +558,7 @@ export class DysonAccessory implements AccessoryEndpoints {
       );
     }
     // Matterbridge puts the condition back to full once the reset is sent, and the machine's own life comes with the next read.
-    const filters = this.client.capabilities.filters;
+    const filters = this.capabilities.filters;
     if (this.layout.hasHepaFilter) {
       const filter = filters.includes('filter') ? 'filter' : 'outerFilter';
       endpoint.addCommandHandler('HepaFilterMonitoring.resetCondition', async () => this.resetFilter(filter));
@@ -756,7 +778,7 @@ export class DysonAccessory implements AccessoryEndpoints {
   }
 
   private createSettingSelect(control: SettingSelect): MatterbridgeEndpoint {
-    const endpoint = createModeSelectEndpoint(this.identity, control.key, control.code, control.label, control.modeOptions(this.client.capabilities), this.parent);
+    const endpoint = createModeSelectEndpoint(this.identity, control.key, control.code, control.label, control.modeOptions(this.capabilities), this.parent);
     this.listen(endpoint, () =>
       endpoint.subscribeAttribute(ModeSelect, 'currentMode', (mode: number, _previous: number, context: ActionContext) => {
         if (!isControllerWrite(context)) return;

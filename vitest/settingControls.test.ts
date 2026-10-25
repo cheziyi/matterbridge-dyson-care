@@ -44,12 +44,12 @@ function selectOf(key: (typeof SETTING_CONTROLS)[number]): SettingSelect {
 describe('settingControls', () => {
   const { state } = createFakeClient(purifierCool);
 
-  it('should give each setting control a code no other has', () => {
+  test('should give each setting control a code no other has', () => {
     const codes = SETTING_CONTROLS.map((key) => settingControls[key].code);
     expect(new Set(codes).size).toBe(codes.length);
   });
 
-  it('should read and send the switches of a machine that has them', () => {
+  test('should read and send the switches of a machine that has them', () => {
     const big = capabilitiesOf(purifierBigQuiet);
     expect(switchOf('hasChildLockSwitch').isAvailable(big)).toBe(true);
     expect(switchOf('hasChildLockSwitch').read({ ...state, childLockMode: true })).toBe(true);
@@ -78,7 +78,7 @@ describe('settingControls', () => {
     expect(SETTING_CONTROLS.filter((key) => settingControls[key].isAvailable(capabilitiesOf(purifierCool)))).toEqual([]);
   });
 
-  it('should list the modes a machine takes, and read and send them', () => {
+  test('should list the modes a machine takes, and read and send them', () => {
     const target = selectOf('hasAirQualityTargetSelect');
     expect(target.isAvailable(capabilitiesOf(coolLink))).toBe(true);
     expect(target.modeOptions(capabilitiesOf(coolLink)).map((option) => option.label)).toEqual(['Good', 'Sensitive', 'Very Sensitive']);

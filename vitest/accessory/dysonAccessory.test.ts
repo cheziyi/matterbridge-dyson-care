@@ -27,8 +27,8 @@ import {
   Thermostat,
   ThermostatUserInterfaceConfiguration,
 } from 'matterbridge/matter/clusters';
-import { log, setupTest } from 'matterbridge/vitest-utils';
-import { addDevice, aggregator, createServerNode, createTestEnvironment, startServerNode, stopServerNode } from 'matterbridge/vitest-utils/matter';
+import { log, setupTest } from 'matterbridge/test-utils/vitest';
+import { addDevice, aggregator, createServerNode, createTestEnvironment, startServerNode, stopServerNode } from 'matterbridge/test-utils/vitest/matter';
 
 import { DysonAccessory } from '../../src/accessory/dysonAccessory.js';
 import { readFanRequest } from '../../src/accessory/matterState.js';
@@ -118,6 +118,16 @@ async function writeAsController(endpoint: MatterbridgeEndpoint | undefined, clu
   await writeTogetherAsController(required(endpoint), [[cluster, attribute, value]]);
 }
 
+/**
+ * Get the label an endpoint is created with, which the Matter apps show as its name
+ *
+ * @param {MatterbridgeEndpoint | undefined} endpoint The endpoint, when the accessory has it.
+ * @returns {unknown} The label, or undefined without an endpoint.
+ */
+function labelOf(endpoint: MatterbridgeEndpoint | undefined): unknown {
+  return endpoint?.getClusterServerOptions(BridgedDeviceBasicInformation)?.nodeLabel;
+}
+
 await setupTest('DysonAccessory', false);
 
 describe('DysonAccessory', () => {
@@ -140,7 +150,7 @@ describe('DysonAccessory', () => {
     let client: FakeClient;
     let accessory: DysonAccessory;
 
-    it('should create an air purifier with every fan control feature and a sensor for each reading', async () => {
+    test('should create an air purifier with every fan control feature and a sensor for each reading', async () => {
       client = createFakeClient(purifierCool);
       // Longer than a slow machine takes between two writes of a test, so that a command only goes out when a test sends it.
       accessory = new DysonAccessory({
@@ -152,17 +162,21 @@ describe('DysonAccessory', () => {
         commandDelayInMs: 500,
       });
       expect(accessory.endpoints).toHaveLength(4);
-      expect(accessory.endpoint.deviceName).toBe('Living Room');
+      // The name in Matterbridge is made of the serial number, so that the identity of the device in Matter never changes: the name given is its label.
+      expect(accessory.endpoint.deviceName).toBe(`Dyson ${purifierCool.serialNumber}`);
+      expect(labelOf(accessory.endpoint)).toBe('Living Room');
       expect(accessory.endpoint.serialNumber).toBe(purifierCool.serialNumber);
       // A device of its own beside the purifier has its serial number with a letter after a dash.
       expect(accessory.airQualitySensor?.serialNumber).toBe(`${purifierCool.serialNumber}-Q`);
-      expect(accessory.airQualitySensor?.deviceName).toBe('Living Room Air Quality');
-      expect(accessory.temperatureSensor?.deviceName).toBe('Living Room Temperature');
-      expect(accessory.humiditySensor?.deviceName).toBe('Living Room Humidity');
+      expect(accessory.airQualitySensor?.deviceName).toBe(`Dyson ${purifierCool.serialNumber} Air Quality`);
+      expect(labelOf(accessory.airQualitySensor)).toBe('Living Room Air Quality');
+      expect(labelOf(accessory.temperatureSensor)).toBe('Living Room Temperature');
+      expect(labelOf(accessory.humiditySensor)).toBe('Living Room Humidity');
       expect(accessory.thermostat).toBeUndefined();
       // Connecting until its first read ends.
       expect(accessory.getStatus()).toMatchObject({ isReachable: false, isConnecting: true });
       await addAccessory(accessory);
+      expect(accessory.endpoint.getAttribute(BridgedDeviceBasicInformation, 'nodeLabel')).toBe('Living Room');
       expect(accessory.endpoint.getAttribute(FanControl, 'speedMax')).toBe(10);
       expect(accessory.endpoint.getAttribute(FanControl, 'fanModeSequence')).toBe(FanControl.FanModeSequence.OffLowMedHighAuto);
       expect(accessory.endpoint.getAttribute('FanControl', 'rockSupport')).toEqual({ rockLeftRight: true, rockUpDown: false, rockRound: false });
@@ -172,7 +186,7 @@ describe('DysonAccessory', () => {
       expect(accessory.temperatureSensor?.getAttribute(TemperatureMeasurement, 'measuredValue')).toBeNull();
     });
 
-    it('should write the state and the readings of the machine to Matter when it starts', async () => {
+    test('should write the state and the readings of the machine to Matter when it starts', async () => {
       client.state = { ...client.state, oscillationMode: 'on', nightMode: true, fanAirDirection: 'backward' };
       expect(await accessory.start()).toBe(true);
       expect(client.connect).toHaveBeenCalledTimes(1);
@@ -197,14 +211,31 @@ describe('DysonAccessory', () => {
       expect(accessory.getStatus()).toMatchObject({ isReachable: true, isConnecting: false, lastError: undefined });
     });
 
-    it('should set the fan speed a controller picks', async () => {
+    test('should take a new name as the label of each endpoint, and keep everything else', async () => {
+      const renamed = createDeviceConfig(purifierCool, { name: 'Lounge', nightModeControl: 'switch' });
+      await accessory.updateConfig(renamed);
+      expect(accessory.name).toBe('Lounge');
+      expect(log.info).toHaveBeenCalledWith('"Living Room" is now named "Lounge"');
+      expect(accessory.endpoint.getAttribute(BridgedDeviceBasicInformation, 'nodeLabel')).toBe('Lounge');
+      expect(accessory.temperatureSensor?.getAttribute(BridgedDeviceBasicInformation, 'nodeLabel')).toBe('Lounge Temperature');
+      expect(accessory.endpoint.deviceName).toBe(`Dyson ${purifierCool.serialNumber}`);
+      // The settings that decide the endpoints stay as the device was built, until it is built again.
+      expect(accessory.nightModeSwitch).toBeUndefined();
+      vi.mocked(log.info).mockClear();
+      await accessory.updateConfig(renamed);
+      expect(log.info).not.toHaveBeenCalled();
+      await accessory.updateConfig(createDeviceConfig(purifierCool));
+      expect(accessory.endpoint.getAttribute(BridgedDeviceBasicInformation, 'nodeLabel')).toBe('Living Room');
+    });
+
+    test('should set the fan speed a controller picks', async () => {
       await writeAsController(accessory.endpoint, 'FanControl', 'percentSetting', 70);
       await accessory.flushCommands();
       expect(client.setState).toHaveBeenCalledWith({ fanSpeed: 7 });
       expect(accessory.endpoint.getAttribute(FanControl, 'speedCurrent')).toBe(7);
     });
 
-    it('should set the nearest speed for the fan modes Low, Medium and High', async () => {
+    test('should set the nearest speed for the fan modes Low, Medium and High', async () => {
       // A fan mode sets the middle percent of its third, 17, 50 or 84 %, which goes to the nearest speed as any percent does.
       await writeAsController(accessory.endpoint, 'FanControl', 'fanMode', FanControl.FanMode.Low);
       await accessory.flushCommands();
@@ -222,14 +253,14 @@ describe('DysonAccessory', () => {
       expect(client.setState).toHaveBeenLastCalledWith({ fanSpeed: 3 });
     });
 
-    it('should turn the auto mode on when a controller picks the fan mode Auto', async () => {
+    test('should turn the auto mode on when a controller picks the fan mode Auto', async () => {
       await writeAsController(accessory.endpoint, 'FanControl', 'fanMode', FanControl.FanMode.Auto);
       await accessory.flushCommands();
       expect(client.setState).toHaveBeenCalledWith({ autoMode: true });
       expect(accessory.endpoint.getAttribute(FanControl, 'fanMode')).toBe(FanControl.FanMode.Auto);
     });
 
-    it('should turn the machine off when a controller sets the fan to off', async () => {
+    test('should turn the machine off when a controller sets the fan to off', async () => {
       await writeAsController(accessory.endpoint, 'FanControl', 'fanMode', FanControl.FanMode.Off);
       await accessory.flushCommands();
       expect(client.setState).toHaveBeenCalledWith({ fanPower: false });
@@ -237,13 +268,13 @@ describe('DysonAccessory', () => {
       expect(accessory.endpoint.getAttribute(FanControl, 'percentSetting')).toBe(0);
     });
 
-    it('should turn the machine on with its on/off', async () => {
+    test('should turn the machine on with its on/off', async () => {
       await writeAsController(accessory.endpoint, 'OnOff', 'onOff', true);
       await accessory.flushCommands();
       expect(client.setState).toHaveBeenCalledWith({ fanPower: true });
     });
 
-    it('should send the rocking, the sleep wind and the airflow direction', async () => {
+    test('should send the rocking, the sleep wind and the airflow direction', async () => {
       await writeTogetherAsController(accessory.endpoint, [
         ['FanControl', 'rockSetting', { rockLeftRight: false, rockUpDown: false, rockRound: false }],
         ['FanControl', 'windSetting', { sleepWind: false, naturalWind: false }],
@@ -253,7 +284,7 @@ describe('DysonAccessory', () => {
       expect(client.setState).toHaveBeenCalledWith({ oscillationMode: 'off', nightMode: false, fanAirDirection: 'forward' });
     });
 
-    it('should write a state the machine sends by itself', async () => {
+    test('should write a state the machine sends by itself', async () => {
       client.handlers.onState({ ...client.state, fanSpeed: 9, autoMode: false });
       await accessory.flushCommands();
       expect(accessory.endpoint.getAttribute(FanControl, 'speedCurrent')).toBe(9);
@@ -262,7 +293,7 @@ describe('DysonAccessory', () => {
       expect(accessory.temperatureSensor?.getAttribute(TemperatureMeasurement, 'measuredValue')).toBeNull();
     });
 
-    it('should report the machine as unreachable after two reads in a row fail', async () => {
+    test('should report the machine as unreachable after two reads in a row fail', async () => {
       client.getState.mockRejectedValueOnce(new DysonError('The machine did not answer', 504));
       expect(await accessory.refresh()).toBe(false);
       expect(accessory.getStatus().isReachable).toBe(true);
@@ -274,7 +305,7 @@ describe('DysonAccessory', () => {
       expect(accessory.endpoint.getAttribute(BridgedDeviceBasicInformation, 'reachable')).toBe(true);
     });
 
-    it('should connect again at the next read after the client gave up', async () => {
+    test('should connect again at the next read after the client gave up', async () => {
       client.handlers.onDisconnect();
       await accessory.flushCommands();
       expect(accessory.getStatus().isReachable).toBe(false);
@@ -282,7 +313,7 @@ describe('DysonAccessory', () => {
       expect(client.connect).toHaveBeenCalledTimes(1);
     });
 
-    it('should disconnect when it is disposed', async () => {
+    test('should disconnect when it is disposed', async () => {
       await accessory.dispose();
       expect(client.disconnect).toHaveBeenCalledTimes(1);
       expect(await accessory.refresh()).toBe(false);
@@ -293,7 +324,7 @@ describe('DysonAccessory', () => {
     let client: FakeClient;
     let accessory: DysonAccessory;
 
-    it('should create the switches, the oscillation select and the thermostat as parts of the purifier', async () => {
+    test('should create the switches, the oscillation select and the thermostat as parts of the purifier', async () => {
       client = createFakeClient(hotCool, { heatMode: 'off', targetTemperatureInC: 22, oscillationPresetAngleInDegrees: 90 });
       const config = createDeviceConfig(hotCool, {
         fanControl: 'percent',
@@ -330,7 +361,7 @@ describe('DysonAccessory', () => {
       expect(accessory.endpoint.getAttribute(FanControl, 'speedMax')).toBeUndefined();
     });
 
-    it('should write the heating, the switches and the preset angle', async () => {
+    test('should write the heating, the switches and the preset angle', async () => {
       client.state = { ...client.state, oscillationMode: 'on' };
       expect(await accessory.refresh()).toBe(true);
       expect(accessory.thermostat?.getAttribute(Thermostat, 'systemMode')).toBe(Thermostat.SystemMode.Off);
@@ -342,7 +373,7 @@ describe('DysonAccessory', () => {
       expect(accessory.fanAutoSwitch?.getAttribute(OnOff, 'onOff')).toBe(false);
     });
 
-    it('should heat to the setpoint a controller sets, turning the machine on', async () => {
+    test('should heat to the setpoint a controller sets, turning the machine on', async () => {
       await writeTogetherAsController(required(accessory.thermostat), [
         ['Thermostat', 'systemMode', Thermostat.SystemMode.Heat],
         ['Thermostat', 'occupiedHeatingSetpoint', 2350],
@@ -353,7 +384,7 @@ describe('DysonAccessory', () => {
       expect(accessory.thermostat?.getAttribute(Thermostat, 'thermostatRunningState')).toMatchObject({ heat: true });
     });
 
-    it('should sweep the preset angle a controller picks', async () => {
+    test('should sweep the preset angle a controller picks', async () => {
       await writeAsController(accessory.oscillationSelect, 'ModeSelect', 'currentMode', 7);
       await accessory.flushCommands();
       expect(client.setState).toHaveBeenCalledWith({ oscillationMode: 'on', oscillationPresetAngleInDegrees: 350 });
@@ -362,7 +393,7 @@ describe('DysonAccessory', () => {
       expect(client.setState).toHaveBeenCalledWith({ oscillationMode: 'off' });
     });
 
-    it('should leave the auto mode for the speed the fan last ran at', async () => {
+    test('should leave the auto mode for the speed the fan last ran at', async () => {
       await writeAsController(accessory.fanAutoSwitch, 'OnOff', 'onOff', true);
       await accessory.flushCommands();
       expect(client.setState).toHaveBeenCalledWith({ autoMode: true });
@@ -371,7 +402,7 @@ describe('DysonAccessory', () => {
       expect(client.setState).toHaveBeenCalledWith({ fanSpeed: 4 });
     });
 
-    it('should send the switches of the night mode, the airflow and the continuous monitoring', async () => {
+    test('should send the switches of the night mode, the airflow and the continuous monitoring', async () => {
       await writeAsController(accessory.nightModeSwitch, 'OnOff', 'onOff', true);
       await writeAsController(accessory.airflowDirectionSwitch, 'OnOff', 'onOff', false);
       await writeAsController(accessory.continuousMonitoringSwitch, 'OnOff', 'onOff', false);
@@ -393,7 +424,7 @@ describe('DysonAccessory', () => {
       expect(accessory.nightModeSwitch?.getAttribute(OnOff, 'onOff')).toBe(false);
     });
 
-    it('should ignore a thermostat mode a heater does not have', async () => {
+    test('should ignore a thermostat mode a heater does not have', async () => {
       await writeAsController(accessory.thermostat, 'Thermostat', 'systemMode', Thermostat.SystemMode.Off);
       await accessory.flushCommands();
       expect(client.setState).toHaveBeenCalledWith({ heatMode: 'off' });
@@ -402,12 +433,13 @@ describe('DysonAccessory', () => {
   });
 
   describe('a humidifier with switches', () => {
-    it('should send the humidifying and its auto mode', async () => {
+    test('should send the humidifying and its auto mode', async () => {
       const client = createFakeClient(humidifyCool, { humidificationMode: 'off', autoHumidification: false, manualHumidificationTargetInPercent: 50, fanAirDirection: null });
       const config = createDeviceConfig(humidifyCool, { humidificationControl: 'switches', oscillationControl: 'switch' });
       const accessory = new DysonAccessory({ config, createClient: factoryOf(client), log, vendorId, commandDelayInMs: 500 });
-      expect(accessory.humidifySwitch?.deviceName).toBe('Nursery Humidify');
-      expect(accessory.autoHumidifySwitch?.deviceName).toBe('Nursery Auto Humidify');
+      expect(accessory.humidifySwitch?.deviceName).toBe(`Dyson ${humidifyCool.serialNumber} Humidify`);
+      expect(labelOf(accessory.humidifySwitch)).toBe('Nursery Humidify');
+      expect(labelOf(accessory.autoHumidifySwitch)).toBe('Nursery Auto Humidify');
       expect(accessory.airflowDirectionSwitch).toBeUndefined();
       await addAccessory(accessory);
       await accessory.start();
@@ -422,7 +454,7 @@ describe('DysonAccessory', () => {
   });
 
   describe('a humidifier with a target humidity select', () => {
-    it('should pick off, auto and a target', async () => {
+    test('should pick off, auto and a target', async () => {
       // A machine of its own: the aggregator still holds the endpoints of the one before.
       const machine = { ...humidifyCool, serialNumber: 'NK6-EU-MHA0013A' };
       const client = createFakeClient(machine, { humidificationMode: 'humidify', autoHumidification: false, manualHumidificationTargetInPercent: 55, fanAirDirection: null });
@@ -446,7 +478,7 @@ describe('DysonAccessory', () => {
   });
 
   describe('a fan with the auto mode as a step', () => {
-    it('should make a fan without an auto mode, and ignore the auto step it cannot have', async () => {
+    test('should make a fan without an auto mode, and ignore the auto step it cannot have', async () => {
       const client = createFakeClient(coolFan, { autoMode: null, fanAirDirection: null, continuousMonitoring: null });
       const config = createDeviceConfig(coolFan, { deviceType: 'fan', fanAutoControl: 'lastStep', hasAirQualitySensor: true });
       const accessory = new DysonAccessory({ config, createClient: factoryOf(client), reportedSensors: everySensor, log, vendorId, commandDelayInMs: 500 });
@@ -458,7 +490,7 @@ describe('DysonAccessory', () => {
       await accessory.dispose();
     });
 
-    it('should put auto above the fastest speed', async () => {
+    test('should put auto above the fastest speed', async () => {
       const machine = { ...purifierCool, serialNumber: 'NK6-EU-MHA0011A' };
       const client = createFakeClient(machine, { autoMode: true, fanSpeed: null });
       const config = createDeviceConfig(machine, { fanAutoControl: 'lastStep', hasAirQualitySensor: false, hasTemperatureSensor: false, hasHumiditySensor: false });
@@ -491,7 +523,7 @@ describe('DysonAccessory', () => {
     let accessory: DysonAccessory;
     const machine = { ...purifierCool, serialNumber: 'NK6-EU-MHA0021A', productName: undefined };
 
-    it('should name the product after the type when the cloud names none', async () => {
+    test('should name the product after the type when the cloud names none', async () => {
       client = createFakeClient(machine, { oscillationMode: 'on' });
       const config = createDeviceConfig(machine, {
         oscillationControl: 'select',
@@ -513,20 +545,20 @@ describe('DysonAccessory', () => {
       expect(accessory.airQualitySensor?.getAttribute('Pm10ConcentrationMeasurement', 'measuredValue')).toBeUndefined();
     });
 
-    it('should show the sweep the machine oscillates through, and nothing for one the select does not list', async () => {
+    test('should show the sweep the machine oscillates through, and nothing for one the select does not list', async () => {
       expect(accessory.oscillationSelect?.getAttribute(ModeSelect, 'currentMode')).toBe(5);
       client.state.oscillationAngles = { lowerInDegrees: 5, upperInDegrees: 60 };
       await accessory.refresh();
       expect(accessory.oscillationSelect?.getAttribute(ModeSelect, 'currentMode')).toBe(5);
     });
 
-    it('should send a sweep as two angles once the command delay runs out', async () => {
+    test('should send a sweep as two angles once the command delay runs out', async () => {
       await writeAsController(accessory.oscillationSelect, 'ModeSelect', 'currentMode', 6);
       await vi.waitFor(() => expect(client.setState).toHaveBeenCalledWith({ oscillationMode: 'on', oscillationAngles: { lowerInDegrees: 5, upperInDegrees: 185 } }));
       await accessory.flushCommands();
     });
 
-    it('should put auto below speed 1, and send the switches both ways', async () => {
+    test('should put auto below speed 1, and send the switches both ways', async () => {
       client.state = { ...client.state, autoMode: true, fanSpeed: null };
       await accessory.refresh();
       expect(accessory.endpoint.getAttribute(FanControl, 'percentSetting')).toBe(9);
@@ -548,7 +580,7 @@ describe('DysonAccessory', () => {
       expect(client.setState).toHaveBeenLastCalledWith({ fanSpeed: 5 });
     });
 
-    it('should keep a state the machine sends while a command waits, for the command to read back', async () => {
+    test('should keep a state the machine sends while a command waits, for the command to read back', async () => {
       await writeAsController(accessory.endpoint, 'OnOff', 'onOff', false);
       client.handlers.onState({ ...client.state, fanSpeed: 2, autoMode: false });
       await vi.waitFor(() => expect(client.setState).toHaveBeenCalledWith({ fanPower: false }));
@@ -556,7 +588,7 @@ describe('DysonAccessory', () => {
       expect(accessory.endpoint.getAttribute(OnOff, 'onOff')).toBe(false);
     });
 
-    it('should log a command the machine does not take, and connect first when the client gave up', async () => {
+    test('should log a command the machine does not take, and connect first when the client gave up', async () => {
       client.handlers.onDisconnect();
       client.setState.mockRejectedValueOnce(new DysonError('The broker refused the command', 503));
       await writeAsController(accessory.endpoint, 'OnOff', 'onOff', true);
@@ -566,12 +598,12 @@ describe('DysonAccessory', () => {
       expect(client.getState).toHaveBeenCalled();
     });
 
-    it('should read the machine again when its client connects again by itself', async () => {
+    test('should read the machine again when its client connects again by itself', async () => {
       client.handlers.onReconnect();
       await vi.waitFor(() => expect(client.getState).toHaveBeenCalledTimes(1));
     });
 
-    it('should log the broker it connects through when it changes, and show it in its status', async () => {
+    test('should log the broker it connects through when it changes, and show it in its status', async () => {
       const info = vi.spyOn(log, 'info');
       // It started through the cloud.
       expect(accessory.getStatus().hostType).toBe('remote');
@@ -598,7 +630,7 @@ describe('DysonAccessory', () => {
       client.hostType = 'remote';
     });
 
-    it('should log what it cannot write to Matter, and carry on', async () => {
+    test('should log what it cannot write to Matter, and carry on', async () => {
       const sensor = required(accessory.airQualitySensor);
       vi.spyOn(sensor, 'updateAttribute').mockRejectedValueOnce(new Error('Matter is busy'));
       client.handlers.onSensors(createSensors());
@@ -609,7 +641,7 @@ describe('DysonAccessory', () => {
       expect(await accessory.refresh()).toBe(true);
     });
 
-    it('should log a reachability it cannot write to Matter', async () => {
+    test('should log a reachability it cannot write to Matter', async () => {
       client.getState.mockRejectedValue(new DysonError('The machine did not answer', 504));
       await accessory.refresh();
       vi.spyOn(accessory.endpoint, 'updateAttribute').mockRejectedValueOnce(new Error('Matter is busy'));
@@ -619,7 +651,7 @@ describe('DysonAccessory', () => {
       expect(await accessory.refresh()).toBe(true);
     });
 
-    it('should ignore the callbacks of a client it replaced', async () => {
+    test('should ignore the callbacks of a client it replaced', async () => {
       const previous = client.handlers;
       client = createFakeClient(machine);
       expect(await accessory.updateConnection(factoryOf(client))).toBe(true);
@@ -634,7 +666,7 @@ describe('DysonAccessory', () => {
       expect(accessory.getStatus().isReachable).toBe(true);
     });
 
-    it('should read and send nothing while it is suspended, and resume with a new client', async () => {
+    test('should read and send nothing while it is suspended, and resume with a new client', async () => {
       await accessory.suspend();
       expect(accessory.getStatus().isConnecting).toBe(false);
       expect(client.disconnect).toHaveBeenCalledTimes(1);
@@ -648,7 +680,7 @@ describe('DysonAccessory', () => {
       expect(accessory.endpoint.getAttribute(BridgedDeviceBasicInformation, 'reachable')).toBe(true);
     });
 
-    it('should take a reading with no place in Matter as known, and ask to be built again for one that has a place', async () => {
+    test('should take a reading with no place in Matter as known, and note one that has a place for the next restart', async () => {
       client.sensors = createSensors({
         humidityInPercent: null,
         temperatureInC: null,
@@ -671,9 +703,11 @@ describe('DysonAccessory', () => {
       });
       await accessory.refresh();
       expect(accessory.takeNewlyReportedSensors()).toEqual({ reported: { ...noReportedSensors, airQuality: true, pm25: true, formaldehyde: true }, needsRebuild: true });
+      // Noted: the reading is reported once, and gets its place at the next start of Matterbridge.
+      expect(accessory.takeNewlyReportedSensors()).toBeUndefined();
     });
 
-    it('should ignore what comes after it is disposed, and a client that does not close cleanly', async () => {
+    test('should ignore what comes after it is disposed, and a client that does not close cleanly', async () => {
       client.disconnect.mockRejectedValueOnce(new Error('Not connected'));
       await accessory.dispose();
       client.handlers.onState({ ...client.state, fanPower: false });
@@ -688,7 +722,7 @@ describe('DysonAccessory', () => {
   });
 
   describe('a device whose endpoints are in no Matter node yet', () => {
-    it('should read the machine at once', async () => {
+    test('should read the machine at once', async () => {
       const client = createFakeClient(purifierCool);
       const accessory = new DysonAccessory({ config: createDeviceConfig(purifierCool, { name: 'Annex' }), createClient: factoryOf(client), log, vendorId });
       // There is no node to wait for.
@@ -699,7 +733,7 @@ describe('DysonAccessory', () => {
   });
 
   describe('a heater with a heat switch', () => {
-    it('should heat with its switch, and ignore a thermostat mode it does not have', async () => {
+    test('should heat with its switch, and ignore a thermostat mode it does not have', async () => {
       const machine = { ...hotCool, serialNumber: 'NK6-EU-MHA0022A' };
       const client = createFakeClient(machine, { heatMode: 'heat', targetTemperatureInC: null, fanSpeed: null, autoMode: false });
       const accessory = new DysonAccessory({
@@ -722,7 +756,7 @@ describe('DysonAccessory', () => {
       await accessory.dispose();
     });
 
-    it('should heat on its thermostat while the room is below the setpoint, and refuse a mode it does not have', async () => {
+    test('should heat on its thermostat while the room is below the setpoint, and refuse a mode it does not have', async () => {
       const machine = { ...hotCool, serialNumber: 'NK6-EU-MHA0023A' };
       const client = createFakeClient(machine, { heatMode: 'heat', targetTemperatureInC: 20 });
       const accessory = new DysonAccessory({ config: createDeviceConfig(machine), createClient: factoryOf(client), log, vendorId, commandDelayInMs: 500 });
@@ -741,7 +775,7 @@ describe('DysonAccessory', () => {
   });
 
   describe('a humidifier without the auto humidifying, and machines that do not oscillate', () => {
-    it('should offer the targets without auto, and show no target it does not hold', async () => {
+    test('should offer the targets without auto, and show no target it does not hold', async () => {
       const machine = { serialNumber: 'NK6-EU-MHA0024A', type: '965', category: 'environmentalCare' as const, name: 'Hall', productName: 'Pure Humidify' };
       const client = createFakeClient(machine, { humidificationMode: 'humidify', autoHumidification: null, manualHumidificationTargetInPercent: null, fanAirDirection: null });
       // It has given the index of its volatile organic compounds alone, and no PM2.5 concentration.
@@ -760,7 +794,7 @@ describe('DysonAccessory', () => {
       await accessory.dispose();
     });
 
-    it('should switch the humidifying off', async () => {
+    test('should switch the humidifying off', async () => {
       const machine = { ...humidifyCool, serialNumber: 'NK6-EU-MHA0025A' };
       const client = createFakeClient(machine, { humidificationMode: 'humidify', autoHumidification: true, fanAirDirection: null });
       const accessory = new DysonAccessory({
@@ -779,7 +813,7 @@ describe('DysonAccessory', () => {
       await accessory.dispose();
     });
 
-    it('should send the rocking and the sleep wind both ways, and leave a fan with no speed as it is', async () => {
+    test('should send the rocking and the sleep wind both ways, and leave a fan with no speed as it is', async () => {
       const machine = { serialNumber: 'NK6-EU-MHA0026A', type: '520', category: 'environmentalCare' as const, name: 'Den' };
       const client = createFakeClient(machine, { fanSpeed: null });
       const accessory = new DysonAccessory({ config: createDeviceConfig(machine), createClient: factoryOf(client), log, vendorId, commandDelayInMs: 500 });
@@ -797,7 +831,7 @@ describe('DysonAccessory', () => {
   });
 
   describe('a fan with no sensor of its own', () => {
-    it('should write a state it is sent before any reading, and take readings with no place in Matter as known', async () => {
+    test('should write a state it is sent before any reading, and take readings with no place in Matter as known', async () => {
       const machine = { ...coolFan, serialNumber: 'NK6-EU-MHA0027A' };
       const client = createFakeClient(machine, { autoMode: null, fanAirDirection: null, continuousMonitoring: null, oscillationMode: 'on' });
       const config = createDeviceConfig(machine, { deviceType: 'fan', oscillationControl: 'switch', hasTemperatureSensor: false, hasHumiditySensor: false });
@@ -821,7 +855,7 @@ describe('DysonAccessory', () => {
     const bare = { hasAirQualitySensor: false, hasTemperatureSensor: false, hasHumiditySensor: false } as const;
     const tilted = { oscillationMode: null, tiltAngleInDegrees: 25, fanAirDirection: null } as const;
 
-    it('should breeze with the up and down rocking, and tilt back to the angle it was at', async () => {
+    test('should breeze with the up and down rocking, and tilt back to the angle it was at', async () => {
       const machine = { ...bigQuiet, serialNumber: 'NK6-EU-MHA0051A' };
       const client = createFakeClient(machine, tilted);
       const accessory = new DysonAccessory({ config: createDeviceConfig(machine, bare), createClient: factoryOf(client), log, vendorId, commandDelayInMs: 500 });
@@ -839,7 +873,7 @@ describe('DysonAccessory', () => {
       await accessory.dispose();
     });
 
-    it('should breeze with a switch, and tilt to the angle its select picks', async () => {
+    test('should breeze with a switch, and tilt to the angle its select picks', async () => {
       const switched = { ...bigQuiet, serialNumber: 'NK6-EU-MHA0052A' };
       const switchClient = createFakeClient(switched, tilted);
       const withSwitch = new DysonAccessory({
@@ -885,13 +919,14 @@ describe('DysonAccessory', () => {
   describe('an oscillation fan', () => {
     const bare = { hasAirQualitySensor: false, hasTemperatureSensor: false, hasHumiditySensor: false, oscillationControl: 'fan' } as const;
 
-    it('should show a barrel still at speed 1, its preset angles above and its breeze as auto, on and off with the machine', async () => {
+    test('should show a barrel still at speed 1, its preset angles above and its breeze as auto, on and off with the machine', async () => {
       const machine = { ...humidifyCool, serialNumber: 'NK6-EU-MHA0081A' };
       const client = createFakeClient(machine, { oscillationMode: 'on', oscillationPresetAngleInDegrees: 90, humidificationMode: 'off' });
       const accessory = new DysonAccessory({ config: createDeviceConfig(machine, bare), createClient: factoryOf(client), log, vendorId, commandDelayInMs: 500 });
       const fan = required(accessory.oscillationFan);
       expect(accessory.endpoints).toContain(fan);
-      expect(fan.deviceName).toBe('Nursery Oscillation');
+      expect(fan.deviceName).toBe(`Dyson ${machine.serialNumber} Oscillation`);
+      expect(labelOf(fan)).toBe('Nursery Oscillation');
       expect(fan.serialNumber).toBe(`${machine.serialNumber}-OF`);
       await addAccessory(accessory);
       // The fan takes the place of the rocking.
@@ -941,7 +976,7 @@ describe('DysonAccessory', () => {
       await accessory.dispose();
     });
 
-    it('should send the sweep of a machine that takes two angles, as a part of the main device with its speed as a percentage', async () => {
+    test('should send the sweep of a machine that takes two angles, as a part of the main device with its speed as a percentage', async () => {
       const machine = { ...purifierCool, serialNumber: 'NK6-EU-MHA0082A' };
       const client = createFakeClient(machine, { oscillationMode: 'on', oscillationAngles: { lowerInDegrees: 90, upperInDegrees: 270 } });
       const config = createDeviceConfig(machine, { ...bare, fanControl: 'percent', isComposed: true });
@@ -964,7 +999,7 @@ describe('DysonAccessory', () => {
       await accessory.dispose();
     });
 
-    it('should tilt a machine that tilts to its speeds and breeze it in auto, with its on/off that of the machine alone', async () => {
+    test('should tilt a machine that tilts to its speeds and breeze it in auto, with its on/off that of the machine alone', async () => {
       const machine = { ...bigQuiet, serialNumber: 'NK6-EU-MHA0083A' };
       const client = createFakeClient(machine, { oscillationMode: null, tiltAngleInDegrees: null, fanAirDirection: null });
       const accessory = new DysonAccessory({ config: createDeviceConfig(machine, bare), createClient: factoryOf(client), log, vendorId, commandDelayInMs: 500 });
@@ -1009,7 +1044,7 @@ describe('DysonAccessory', () => {
       await accessory.dispose();
     });
 
-    it('should leave the speed as it was for a breeze the fan has no auto for', async () => {
+    test('should leave the speed as it was for a breeze the fan has no auto for', async () => {
       const machine = { ...hotCool, serialNumber: 'NK6-EU-MHA0085A' };
       const client = createFakeClient(machine, { oscillationMode: 'on', oscillationPresetAngleInDegrees: 45, heatMode: 'off' });
       const config = createDeviceConfig(machine, { ...bare, heatControl: 'hidden' });
@@ -1026,7 +1061,7 @@ describe('DysonAccessory', () => {
       await accessory.dispose();
     });
 
-    it('should be a switch on a machine with no angle to make a speed of', async () => {
+    test('should be a switch on a machine with no angle to make a speed of', async () => {
       const machine = { ...purifierCool, serialNumber: 'NK6-EU-MHA0084A', firmwareCapabilities: [] };
       const client = createFakeClient(machine);
       const accessory = new DysonAccessory({ config: createDeviceConfig(machine, bare), createClient: factoryOf(client), log, vendorId });
@@ -1044,7 +1079,7 @@ describe('DysonAccessory', () => {
     const hepa = 'HepaFilterMonitoring';
     const carbon = 'ActivatedCarbonFilterMonitoring';
 
-    it('should show the find and follow on a switch, and the life of each filter', async () => {
+    test('should show the find and follow on a switch, and the life of each filter', async () => {
       client = createFakeClient(machine, {
         findAndFollowMode: 'scan',
         outerFilterLifeInPercent: 8,
@@ -1071,7 +1106,7 @@ describe('DysonAccessory', () => {
       expect(accessory.endpoint.getAttribute(carbon, 'inPlaceIndicator')).toBe(false);
     });
 
-    it('should send the find and follow its switch sets', async () => {
+    test('should send the find and follow its switch sets', async () => {
       await writeAsController(accessory.findAndFollowSwitch, 'OnOff', 'onOff', false);
       await accessory.flushCommands();
       expect(client.setState).toHaveBeenLastCalledWith({ findAndFollowMode: 'off' });
@@ -1080,7 +1115,7 @@ describe('DysonAccessory', () => {
       expect(client.setState).toHaveBeenLastCalledWith({ findAndFollowMode: 'on' });
     });
 
-    it('should reset the life of a filter a controller resets, and fail a reset the machine does not take', async () => {
+    test('should reset the life of a filter a controller resets, and fail a reset the machine does not take', async () => {
       await accessory.endpoint.invokeBehaviorCommand(HepaFilterMonitoring, 'resetCondition');
       expect(client.resetFilterLife).toHaveBeenLastCalledWith('outerFilter');
       expect(accessory.endpoint.getAttribute(hepa, 'condition')).toBe(100);
@@ -1095,7 +1130,7 @@ describe('DysonAccessory', () => {
       expect(client.connect).toHaveBeenCalledTimes(1);
     });
 
-    it('should keep the faults the machine reports, and log when they change', async () => {
+    test('should keep the faults the machine reports, and log when they change', async () => {
       // The first read asked for them, and the machine reported none.
       expect(accessory.getStatus().faults).toEqual([]);
       client.handlers.onFaults(createFaults({ productWarnings: ['filterReplacement'], moduleErrors: ['wifiHeartbeat'], moduleWarnings: ['filterReplacement'] }));
@@ -1112,7 +1147,7 @@ describe('DysonAccessory', () => {
       expect(client.getFaults).not.toHaveBeenCalled();
     });
 
-    it('should ask for the faults again after a while, and log a machine that does not tell them', async () => {
+    test('should ask for the faults again after a while, and log a machine that does not tell them', async () => {
       const now = Date.now();
       const clock = vi.spyOn(Date, 'now').mockReturnValue(now + 16 * 60 * 1000);
       client.getFaults.mockRejectedValueOnce(new DysonError('The machine did not answer', 504));
@@ -1139,14 +1174,14 @@ describe('DysonAccessory', () => {
       clock.mockRestore();
     });
 
-    it('should fail a reset while no account is signed in', async () => {
+    test('should fail a reset while no account is signed in', async () => {
       await accessory.suspend();
       await expect(accessory.endpoint.invokeBehaviorCommand(HepaFilterMonitoring, 'resetCondition')).rejects.toThrow();
       expect(client.resetFilterLife).not.toHaveBeenCalled();
       await accessory.dispose();
     });
 
-    it('should pick off, follow or scan on a select, and give a fan no filters', async () => {
+    test('should pick off, follow or scan on a select, and give a fan no filters', async () => {
       const selected = { ...purifierFollow, serialNumber: 'NK6-EU-MHA0062A' };
       const selectClient = createFakeClient(selected, { findAndFollowMode: 'off' });
       const config = createDeviceConfig(selected, {
@@ -1170,7 +1205,7 @@ describe('DysonAccessory', () => {
   });
 
   describe('a machine of the first generation, and a humidifier with a water hardness select', () => {
-    it('should show the life of the one filter it counts in hours, and reset it', async () => {
+    test('should show the life of the one filter it counts in hours, and reset it', async () => {
       const machine = { ...coolLink, serialNumber: 'NK6-EU-MHA0071A' };
       const client = createFakeClient(machine, { filterLifeInHours: 2150 });
       const config = createDeviceConfig(machine, { hasAirQualitySensor: false, hasTemperatureSensor: false, hasHumiditySensor: false });
@@ -1186,7 +1221,7 @@ describe('DysonAccessory', () => {
       await accessory.dispose();
     });
 
-    it('should pick the water hardness on its select', async () => {
+    test('should pick the water hardness on its select', async () => {
       const machine = { ...humidifyCool, serialNumber: 'NK6-EU-MHA0072A' };
       const client = createFakeClient(machine, { waterHardness: 'medium', humidificationMode: 'off', autoHumidification: false, manualHumidificationTargetInPercent: 50 });
       const config = createDeviceConfig(machine, {
@@ -1210,7 +1245,7 @@ describe('DysonAccessory', () => {
   describe('machines with more controls', () => {
     const bare = { hasAirQualitySensor: false, hasTemperatureSensor: false, hasHumiditySensor: false } as const;
 
-    it('should show the switches of the child lock, the UV light and the ioniser', async () => {
+    test('should show the switches of the child lock, the UV light and the ioniser', async () => {
       const machine = { serialNumber: 'NK6-EU-MHA0091A', type: '997', model: 'EAST', category: 'environmentalCare' as const, name: 'Loft', productName: 'Purifier Big+Quiet' };
       const client = createFakeClient(machine, { fanPower: false, childLockMode: false, uvMode: true, ionisationMode: null });
       const config = createDeviceConfig(machine, { ...bare, hasChildLockSwitch: true, hasUvLightSwitch: true, hasIoniserSwitch: true });
@@ -1233,7 +1268,7 @@ describe('DysonAccessory', () => {
       await accessory.dispose();
     });
 
-    it('should pick the air quality the auto mode aims for on a select, beside a thermostat without a unit', async () => {
+    test('should pick the air quality the auto mode aims for on a select, beside a thermostat without a unit', async () => {
       const machine = { serialNumber: 'NK6-EU-MHA0092A', type: '455', category: 'environmentalCare' as const, name: 'Study', productName: 'Pure Hot+Cool Link' };
       const client = createFakeClient(machine, { airQualityTarget: 'sensitive' });
       const config = createDeviceConfig(machine, { ...bare, heatControl: 'thermostat', hasAirQualityTargetSelect: true });
@@ -1255,7 +1290,7 @@ describe('DysonAccessory', () => {
       await accessory.dispose();
     });
 
-    it('should show the temperature unit and whether the heater runs on the thermostat, and send the unit a controller sets', async () => {
+    test('should show the temperature unit and whether the heater runs on the thermostat, and send the unit a controller sets', async () => {
       const machine = { ...hotCool, serialNumber: 'NK6-EU-MHA0093A' };
       const client = createFakeClient(machine, { heatMode: 'heat', targetTemperatureInC: 25, heatState: 'off', temperatureUnit: 'fahrenheit' });
       const config = createDeviceConfig(machine, { ...bare, heatControl: 'thermostat' });
@@ -1281,7 +1316,7 @@ describe('DysonAccessory', () => {
   });
 
   describe('readFanRequest', () => {
-    it('should read nothing from a fan control that holds no percent', () => {
+    test('should read nothing from a fan control that holds no percent', () => {
       const endpoint = { getAttribute: (_cluster: unknown, attribute: string) => (attribute === 'fanMode' ? FanControl.FanMode.Low : null) } as unknown as MatterbridgeEndpoint;
       expect(readFanRequest(endpoint, [1, 2, 3])).toBeUndefined();
     });

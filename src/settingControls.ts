@@ -66,6 +66,7 @@ export interface SettingSelect extends SettingControlName {
   writeMode: (mode: number) => EnvironmentalCareControl;
 }
 
+/** A setting control: a switch, or a mode select. */
 export type SettingControl = SettingSwitch | SettingSelect;
 
 /**

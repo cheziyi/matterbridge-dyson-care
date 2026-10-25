@@ -2,7 +2,23 @@
  * @file apps/frontend/src/exposure.ts
  * @description How a device appears in Matter: the choices a draft starts with, and those a machine has a use for.
  * @author Calvin Che
+ * @created 2026-10-19
+ * @version 1.0.0
  * @license Apache-2.0
+ *
+ * Copyright 2026 Calvin Che.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 import type { AvailableControls, Exposure, Machine, ReportedSensors, SettingControlKey, StoredDevice } from './api.js';
@@ -150,9 +166,36 @@ export function draftsFromMachines(machines: readonly Machine[]): Draft[] {
 }
 
 export function draftFromStored(device: StoredDevice): Draft {
-  const { capabilities, controls, reportedSensors, name, roomName, host, isCloudOnly, serialNumber, type, variant, mqttRootTopicLevel, model, productName, firmwareVersion, firmwareCapabilities } = device;
+  const {
+    capabilities,
+    controls,
+    reportedSensors,
+    name,
+    roomName,
+    host,
+    isCloudOnly,
+    serialNumber,
+    type,
+    variant,
+    mqttRootTopicLevel,
+    model,
+    productName,
+    firmwareVersion,
+    firmwareCapabilities,
+  } = device;
   // The machine is named as the MyDyson app names it, and the draft as Matter does.
-  const machine: Machine = { serialNumber, type, category: 'environmentalCare', name: roomName, variant, mqttRootTopicLevel, model, productName, firmwareVersion, firmwareCapabilities };
+  const machine: Machine = {
+    serialNumber,
+    type,
+    category: 'environmentalCare',
+    name: roomName,
+    variant,
+    mqttRootTopicLevel,
+    model,
+    productName,
+    firmwareVersion,
+    firmwareCapabilities,
+  };
   return { machine, name, host: host ?? '', isCloudOnly: isCloudOnly ?? false, isNew: false, capabilities, controls, reportedSensors, ...pickExposure(device) };
 }
 

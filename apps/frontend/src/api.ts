@@ -2,7 +2,23 @@
  * @file apps/frontend/src/api.ts
  * @description What the plugin's API sends and takes, and the call to it: see src/setup/setupApi.ts in the plugin.
  * @author Calvin Che
+ * @created 2026-10-19
+ * @version 1.0.0
  * @license Apache-2.0
+ *
+ * Copyright 2026 Calvin Che.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 import type { DysonMachine, EnvironmentalCareCapabilities } from 'dyson-control';

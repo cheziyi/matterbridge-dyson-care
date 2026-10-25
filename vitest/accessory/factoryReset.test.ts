@@ -13,8 +13,8 @@
 import type { MatterbridgeEndpoint } from 'matterbridge';
 import type { ActionContext } from 'matterbridge/matter';
 import { BridgedDeviceBasicInformation, OnOff, Thermostat } from 'matterbridge/matter/clusters';
-import { log, setupTest } from 'matterbridge/vitest-utils';
-import { addDevice, aggregator, createServerNode, createTestEnvironment, server, startServerNode, stopServerNode } from 'matterbridge/vitest-utils/matter';
+import { log, setupTest } from 'matterbridge/test-utils/vitest';
+import { addDevice, aggregator, createServerNode, createTestEnvironment, server, startServerNode, stopServerNode } from 'matterbridge/test-utils/vitest/matter';
 
 import { DysonAccessory } from '../../src/accessory/dysonAccessory.js';
 import { createDeviceConfig, createFakeClient, createSensors, factoryOf, type FakeClient, hotCool } from '../fakeDyson.js';
@@ -61,7 +61,7 @@ describe('a device when the Matter node is reset to factory defaults', () => {
     vi.restoreAllMocks();
   });
 
-  it('should take the writes of a controller before the reset', async () => {
+  test('should take the writes of a controller before the reset', async () => {
     // A heater with a thermostat, which the node writes its temperature to as it goes online.
     client = createFakeClient(hotCool, { heatMode: 'off', targetTemperatureInC: 20 });
     const config = createDeviceConfig(hotCool, { name: 'Lounge', nightModeControl: 'switch', heatControl: 'thermostat' });
@@ -73,7 +73,7 @@ describe('a device when the Matter node is reset to factory defaults', () => {
     expect(client.setState).toHaveBeenCalledExactlyOnceWith({ fanPower: false });
   });
 
-  it('should subscribe again once the node is back, and write the state of the machine again', async () => {
+  test('should subscribe again once the node is back, and write the state of the machine again', async () => {
     client.state.fanPower = true;
     client.sensors = createSensors({ temperatureInC: 18 });
     const info = vi.spyOn(log, 'info');
@@ -101,7 +101,7 @@ describe('a device when the Matter node is reset to factory defaults', () => {
     expect(isOnlineAtRead).toEqual([true]);
   });
 
-  it('should take the writes of a controller to each endpoint after the reset', async () => {
+  test('should take the writes of a controller to each endpoint after the reset', async () => {
     await writeAsController(accessory.endpoint, 'OnOff', 'onOff', false);
     await accessory.flushCommands();
     expect(client.setState).toHaveBeenLastCalledWith({ fanPower: false });
@@ -112,7 +112,7 @@ describe('a device when the Matter node is reset to factory defaults', () => {
     expect(client.setState).toHaveBeenCalledTimes(2);
   });
 
-  it('should show a device signed out while the node is offline as unreachable once the node is back', async () => {
+  test('should show a device signed out while the node is offline as unreachable once the node is back', async () => {
     const suspendDuringReset = new Promise<void>((resolve) => {
       server.lifecycle.offline.once(() => {
         resolve(accessory.suspend());
@@ -124,7 +124,7 @@ describe('a device when the Matter node is reset to factory defaults', () => {
     expect(client.getState).not.toHaveBeenCalled();
   });
 
-  it('should write nothing once the node is back when the device was disposed while it was offline', async () => {
+  test('should write nothing once the node is back when the device was disposed while it was offline', async () => {
     const info = vi.spyOn(log, 'info');
     const disposeDuringReset = new Promise<void>((resolve) => {
       server.lifecycle.offline.once(() => {

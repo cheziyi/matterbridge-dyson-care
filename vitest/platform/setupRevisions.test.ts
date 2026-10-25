@@ -13,7 +13,7 @@ describe('setupRevisions', () => {
     vi.restoreAllMocks();
   });
 
-  it('should read a stored revision, and 0 for anything else', () => {
+  test('should read a stored revision, and 0 for anything else', () => {
     expect(parseSetupRevision(7)).toBe(7);
     expect(parseSetupRevision(0)).toBe(0);
     expect(parseSetupRevision(-1)).toBe(0);
@@ -22,14 +22,14 @@ describe('setupRevisions', () => {
     expect(parseSetupRevision(undefined)).toBe(0);
   });
 
-  it('should count on from the stored revision', () => {
+  test('should count on from the stored revision', () => {
     const revisions = new SetupRevisions(4);
     expect(revisions.current).toBe(4);
     expect(revisions.advance()).toBe(5);
     expect(revisions.current).toBe(5);
   });
 
-  it('should know a configuration it stored once, and those stored before it', () => {
+  test('should know a configuration it stored once, and those stored before it', () => {
     const revisions = new SetupRevisions(undefined);
     revisions.advance();
     revisions.advance();
@@ -42,7 +42,7 @@ describe('setupRevisions', () => {
     expect(revisions.acknowledge(3)).toBe(true);
   });
 
-  it('should stop expecting a configuration that did not come back within 10 seconds', () => {
+  test('should stop expecting a configuration that did not come back within 10 seconds', () => {
     const clock = vi.spyOn(Date, 'now').mockReturnValue(1000);
     const revisions = new SetupRevisions(0);
     revisions.advance();

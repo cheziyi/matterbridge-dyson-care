@@ -8,6 +8,7 @@
 
 import {
   defaultExposure,
+  type DysonDeviceConfig,
   getUnreadableDevices,
   hasSameExposure,
   hasSameMachine,
@@ -20,12 +21,13 @@ import {
   parseDeviceConfig,
   parseDeviceConfigs,
   toDysonMachine,
+  withExposureOf,
   withoutLanPassword,
 } from '../src/config.js';
 import { account, createDeviceConfig, hotCool, purifierCool } from './fakeDyson.js';
 
 describe('config', () => {
-  it('should take a serial number of letters, digits and dashes, 32 at most', () => {
+  test('should take a serial number of letters, digits and dashes, 32 at most', () => {
     expect(isValidSerialNumber('NK6-EU-MHA0001A')).toBe(true);
     expect(isValidSerialNumber('-NK6')).toBe(false);
     expect(isValidSerialNumber('NK6 EU')).toBe(false);
@@ -33,14 +35,14 @@ describe('config', () => {
     expect(isValidSerialNumber(42)).toBe(false);
   });
 
-  it('should trim a name, and refuse one that is empty or longer than 32 characters', () => {
+  test('should trim a name, and refuse one that is empty or longer than 32 characters', () => {
     expect(normalizeDeviceName('  Living Room ')).toBe('Living Room');
     expect(normalizeDeviceName('   ')).toBeUndefined();
     expect(normalizeDeviceName('A'.repeat(33))).toBeUndefined();
     expect(normalizeDeviceName(undefined)).toBeUndefined();
   });
 
-  it('should take a host name or an IPv4 address, trimmed', () => {
+  test('should take a host name or an IPv4 address, trimmed', () => {
     expect(normalizeHost(' 192.168.1.20 ')).toBe('192.168.1.20');
     expect(normalizeHost('NK6-EU-MHA0001A.local')).toBe('NK6-EU-MHA0001A.local');
     expect(normalizeHost('purifier')).toBe('purifier');
@@ -52,21 +54,21 @@ describe('config', () => {
     expect(normalizeHost(42)).toBeUndefined();
   });
 
-  it('should try a machine on the LAN once the cloud gave the password of its broker, unless it is set to the cloud alone', () => {
+  test('should try a machine on the LAN once the cloud gave the password of its broker, unless it is set to the cloud alone', () => {
     const device = createDeviceConfig(purifierCool, { apPasswordHash: 'hash-1' });
     expect(isTriedOnLan(device)).toBe(true);
     expect(isTriedOnLan({ ...device, isCloudOnly: true })).toBe(false);
     expect(isTriedOnLan(createDeviceConfig(purifierCool, { host: '192.168.1.20' }))).toBe(false);
   });
 
-  it('should copy a device without the password of its broker on the LAN', () => {
+  test('should copy a device without the password of its broker on the LAN', () => {
     const device = createDeviceConfig(purifierCool, { apPasswordHash: 'hash-1' });
     expect(withoutLanPassword(device)).toEqual(createDeviceConfig(purifierCool));
     expect(withoutLanPassword(device)).not.toHaveProperty('apPasswordHash');
     expect(device.apPasswordHash).toBe('hash-1');
   });
 
-  it('should clamp the poll interval to 10..3600 seconds, and fall back to 30', () => {
+  test('should clamp the poll interval to 10..3600 seconds, and fall back to 30', () => {
     expect(normalizePollInterval(60)).toBe(60);
     expect(normalizePollInterval(2)).toBe(10);
     expect(normalizePollInterval(99_999)).toBe(3600);
@@ -75,7 +77,7 @@ describe('config', () => {
     expect(normalizePollInterval(undefined)).toBe(30);
   });
 
-  it('should read a stored account, and refuse one that lacks a field', () => {
+  test('should read a stored account, and refuse one that lacks a field', () => {
     expect(parseAccountConfig(account)).toEqual(account);
     expect(parseAccountConfig({ ...account, extra: true })).toEqual(account);
     expect(parseAccountConfig({ ...account, token: '' })).toBeUndefined();
@@ -85,12 +87,12 @@ describe('config', () => {
     expect(parseAccountConfig(undefined)).toBeUndefined();
   });
 
-  it('should read a stored device with every setting', () => {
+  test('should read a stored device with every setting', () => {
     const device = createDeviceConfig(purifierCool, { variant: 'M', mqttRootTopicLevel: '438M', model: 'TP07' });
     expect(parseDeviceConfig(device)).toEqual(device);
   });
 
-  it('should fall back to the defaults for the settings a device lacks, and report the ones that are not valid', () => {
+  test('should fall back to the defaults for the settings a device lacks, and report the ones that are not valid', () => {
     const report = vi.fn();
     const device = parseDeviceConfig(
       { name: 'Study', serialNumber: 'NK6-EU-MHA0009A', type: '438', fanControl: 'dial', isComposed: 'yes', firmwareCapabilities: ['A', 7] },
@@ -102,11 +104,11 @@ describe('config', () => {
     expect(report).toHaveBeenCalledWith('"Study" has the isComposed "yes", which is not valid: true is used instead');
   });
 
-  it('should read a device stored without firmware capabilities', () => {
+  test('should read a device stored without firmware capabilities', () => {
     expect(parseDeviceConfig({ name: 'Study', serialNumber: 'NK6', type: '438' })).not.toHaveProperty('firmwareCapabilities');
   });
 
-  it('should read the host and the password of the broker on the LAN of a device, and report a host that is not valid', () => {
+  test('should read the host and the password of the broker on the LAN of a device, and report a host that is not valid', () => {
     const stored = { ...createDeviceConfig(purifierCool), host: ' 192.168.1.20 ', apPasswordHash: 'hash-1' };
     expect(parseDeviceConfig(stored)).toEqual({ ...stored, host: '192.168.1.20' });
     const report = vi.fn();
@@ -115,7 +117,7 @@ describe('config', () => {
     expect(report).toHaveBeenCalledExactlyOnceWith('"Living Room" has the host "not a host", which is not valid: it is searched for on the LAN instead');
   });
 
-  it('should read a device set to the cloud alone, and report a cloud-only setting that is not a boolean', () => {
+  test('should read a device set to the cloud alone, and report a cloud-only setting that is not a boolean', () => {
     const stored = createDeviceConfig(purifierCool, { isCloudOnly: true });
     expect(parseDeviceConfig(stored)).toEqual(stored);
     expect(parseDeviceConfig({ ...stored, isCloudOnly: false })).toEqual(createDeviceConfig(purifierCool));
@@ -124,14 +126,14 @@ describe('config', () => {
     expect(report).toHaveBeenCalledExactlyOnceWith('"Living Room" has the isCloudOnly "yes", which is not valid: it is tried on the LAN first instead');
   });
 
-  it('should refuse a device without a valid name, serial number or type', () => {
+  test('should refuse a device without a valid name, serial number or type', () => {
     expect(parseDeviceConfig({ serialNumber: 'NK6', type: '438' })).toBeUndefined();
     expect(parseDeviceConfig({ name: 'A', serialNumber: 'NK6 EU', type: '438' })).toBeUndefined();
     expect(parseDeviceConfig({ name: 'A', serialNumber: 'NK6', type: '' })).toBeUndefined();
     expect(parseDeviceConfig(null)).toBeUndefined();
   });
 
-  it('should drop a device that is not valid, or whose name or serial number another took', () => {
+  test('should drop a device that is not valid, or whose name or serial number another took', () => {
     const report = vi.fn();
     const livingRoom = createDeviceConfig(purifierCool);
     const bedroom = createDeviceConfig(hotCool);
@@ -141,7 +143,7 @@ describe('config', () => {
     expect(parseDeviceConfigs('devices')).toEqual([]);
   });
 
-  it('should keep the stored devices it cannot read, until a device takes their name or their serial number', () => {
+  test('should keep the stored devices it cannot read, until a device takes their name or their serial number', () => {
     const livingRoom = createDeviceConfig(purifierCool);
     const broken = { name: 'Broken', serialNumber: 'NK6-EU-MHA0099A' };
     const brokenLivingRoom = { name: 'Living Room' };
@@ -150,7 +152,7 @@ describe('config', () => {
     expect(getUnreadableDevices(undefined, [])).toEqual([]);
   });
 
-  it('should turn a stored device into the machine of the Dyson client', () => {
+  test('should turn a stored device into the machine of the Dyson client', () => {
     expect(toDysonMachine(createDeviceConfig(purifierCool, { variant: 'M', mqttRootTopicLevel: '438M', model: 'TP07' }))).toEqual({
       ...purifierCool,
       variant: 'M',
@@ -161,7 +163,7 @@ describe('config', () => {
     expect(toDysonMachine(createDeviceConfig({ serialNumber: 'NK6', type: '438' }))).toEqual({ serialNumber: 'NK6', type: '438', category: 'environmentalCare', name: 'Unnamed' });
   });
 
-  it('should tell the same machine and the same exposure apart', () => {
+  test('should tell the same machine and the same exposure apart', () => {
     const device = createDeviceConfig(purifierCool);
     expect(hasSameMachine(device, { ...device, name: 'Elsewhere' })).toBe(true);
     expect(hasSameMachine(device, { ...device, firmwareCapabilities: [] })).toBe(false);
@@ -171,7 +173,15 @@ describe('config', () => {
     expect(hasSameMachine(device, { ...device, isCloudOnly: true })).toBe(false);
     expect(hasSameMachine(device, { ...device, apPasswordHash: 'hash-1' })).toBe(false);
     expect(hasSameExposure(device, { ...device, firmwareVersion: '1' })).toBe(true);
-    expect(hasSameExposure(device, { ...device, name: 'Elsewhere' })).toBe(false);
+    // The name is the label of the device in Matter, which changes in place.
+    expect(hasSameExposure(device, { ...device, name: 'Elsewhere' })).toBe(true);
     expect(hasSameExposure(device, { ...device, nightModeControl: 'switch' })).toBe(false);
+  });
+
+  test('should take the exposure of another device and keep everything else', () => {
+    const device = createDeviceConfig(purifierCool);
+    const changed: DysonDeviceConfig = { ...device, name: 'Elsewhere', host: '192.168.1.20', nightModeControl: 'switch', isComposed: false };
+    expect(withExposureOf(changed, device)).toEqual({ ...device, name: 'Elsewhere', host: '192.168.1.20' });
+    expect(withExposureOf(device, changed)).toEqual({ ...device, nightModeControl: 'switch', isComposed: false });
   });
 });

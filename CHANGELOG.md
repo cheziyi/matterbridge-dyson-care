@@ -10,6 +10,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - [devices]: Add a fan as an option for the oscillation, in place of the rocking, for the apps that show neither the rocking nor a mode select. Its first speed stands the machine still and each speed above it is an angle it sweeps, narrowest first, and its fan mode Auto is the breeze of a humidifier whose barrel turns. The fan of the Big+Quiet tilts it to 0°, 25° and 50° and breezes in auto. The on/off of the fan is the power of the machine, and the fan's own on/off does nothing. A machine with no angle to make a speed of gets a switch instead.
 
+### Changed
+
+- [devices]: **Breaking:** devices stored by an earlier version change their identity in Matter at the first start, and the Matter apps take them for new devices: put them back in their rooms once. The name of a device in Matterbridge is made of the serial number of its machine, such as `Dyson NK6-EU-MHA0000A`, and the name given in the setup page is the label of the device, which the Matter apps show. Matterbridge derives the identity of a device from its name, so a new name no longer builds the device again: it is written to the label of each endpoint that is a device of its own, and the apps keep the device with its room and its automations.
+- [devices]: A change of how a device appears in Matter, a reading its machine gives for the first time and a firmware that gives the machine other controls no longer build the device again at once. The device keeps its endpoints, and is built again with its new options at the next restart of Matterbridge, which Matterbridge and the setup page ask for. Taking the endpoints of a device away and registering them again while Matterbridge runs made Apple Home take the device for a new one, with its room and its automations lost; across a restart the endpoint numbers are kept.
+- [devices]: An endpoint that is brought back after it was taken away, such as a switch turned off and on again in the options, gets a new endpoint id, and with it a new endpoint number instead of the one it had: Apple Home could not change the settings of a device that came back under its old number. The machine and the endpoints that stay keep theirs.
+- [devices]: The product name of a machine stays as it was when the machine was added: Matterbridge makes the identity of the device in Matter from it too, so the machine list no longer updates it.
+
 ## [0.4.0] - 2026-10-20
 
 ### Added

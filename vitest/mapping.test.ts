@@ -34,7 +34,7 @@ import {
 import { capabilitiesOf, createEmptySensors, createFakeClient, createSensors, humidifyCool, purifierCool } from './fakeDyson.js';
 
 describe('mapping', () => {
-  it('should turn each fan step into a percent that turns back into the same step', () => {
+  test('should turn each fan step into a percent that turns back into the same step', () => {
     for (let step = 1; step <= 11; step++) expect(percentToFanStep(11, fanStepToPercent(11, step))).toBe(step);
     expect(fanStepToPercent(10, 4)).toBe(40);
     // Rounded down, as Matterbridge rounds the speed setting up: four sixths are 66.7 %.
@@ -49,12 +49,12 @@ describe('mapping', () => {
     expect(percentToFanStep(10, 4)).toBe(1);
   });
 
-  it('should pick the fan mode sequence with or without auto', () => {
+  test('should pick the fan mode sequence with or without auto', () => {
     expect(getFanModeSequence(true)).toBe(FanControl.FanModeSequence.OffLowMedHighAuto);
     expect(getFanModeSequence(false)).toBe(FanControl.FanModeSequence.OffLowMedHigh);
   });
 
-  it('should pick a fan mode sequence for the fewer speeds of an oscillation fan', () => {
+  test('should pick a fan mode sequence for the fewer speeds of an oscillation fan', () => {
     expect(getFanModeSequence(false, 3)).toBe(FanControl.FanModeSequence.OffLowMedHigh);
     expect(getFanModeSequence(true, 2)).toBe(FanControl.FanModeSequence.OffLowHighAuto);
     expect(getFanModeSequence(false, 2)).toBe(FanControl.FanModeSequence.OffLowHigh);
@@ -62,14 +62,14 @@ describe('mapping', () => {
     expect(getFanModeSequence(false, 1)).toBe(FanControl.FanModeSequence.OffHigh);
   });
 
-  it('should tell the angles a machine tilts to from the ones it sweeps', () => {
+  test('should tell the angles a machine tilts to from the ones it sweeps', () => {
     expect(isTiltFanAngle(0)).toBe(true);
     expect(isTiltFanAngle(25)).toBe(true);
     expect(isTiltFanAngle(50)).toBe(true);
     expect(isTiltFanAngle(45)).toBe(false);
   });
 
-  it('should list the modes of a select in the order of its choices, numbered by their place', () => {
+  test('should list the modes of a select in the order of its choices, numbered by their place', () => {
     expect(toModeOptions(oscillationSelectChoices, ['off', 'breeze', 45])).toEqual([
       { label: 'Off', mode: 0, semanticTags: [] },
       { label: '45°', mode: 3, semanticTags: [] },
@@ -77,7 +77,7 @@ describe('mapping', () => {
     ]);
   });
 
-  it('should take on, idle on and scan as oscillating', () => {
+  test('should take on, idle on and scan as oscillating', () => {
     expect(isOscillating('on')).toBe(true);
     expect(isOscillating('idleOn')).toBe(true);
     expect(isOscillating('scan')).toBe(true);
@@ -85,7 +85,7 @@ describe('mapping', () => {
     expect(isOscillating(null)).toBe(false);
   });
 
-  it('should turn the oscillation of a machine that stands by on and off with its idle modes', () => {
+  test('should turn the oscillation of a machine that stands by on and off with its idle modes', () => {
     const { state } = createFakeClient(humidifyCool);
     const modes = capabilitiesOf(humidifyCool).oscillationModes;
     expect(toOscillationMode(true, state, modes)).toBe('on');
@@ -98,7 +98,7 @@ describe('mapping', () => {
     expect(capabilitiesOf(purifierCool).oscillationModes).toContain('idleOn');
   });
 
-  it('should show the life left in a filter, and warn when it is about to run out', () => {
+  test('should show the life left in a filter, and warn when it is about to run out', () => {
     expect(filterHoursToPercent(4300)).toBe(100);
     expect(filterHoursToPercent(2150)).toBe(50);
     expect(filterHoursToPercent(5000)).toBe(100);
@@ -109,14 +109,14 @@ describe('mapping', () => {
     expect(getFilterChangeIndication(0)).toBe(ResourceMonitoring.ChangeIndication.Critical);
   });
 
-  it('should offer the widths a machine takes as sweeps, but not one direction', () => {
+  test('should offer the widths a machine takes as sweeps, but not one direction', () => {
     expect(isOscillationSweep(90)).toBe(true);
     expect(isOscillationSweep('breeze')).toBe(false);
     expect(getSweeps([0, 45, 90, 180, 350])).toEqual([45, 90, 180, 350]);
     expect(getSweeps([0])).toEqual([]);
   });
 
-  it('should centre a sweep where the machine oscillates, within its range', () => {
+  test('should centre a sweep where the machine oscillates, within its range', () => {
     const range = { lowerInDegrees: 5, upperInDegrees: 355 };
     expect(getSweepAngles(90, { lowerInDegrees: 135, upperInDegrees: 225 }, range)).toEqual({ lowerInDegrees: 135, upperInDegrees: 225 });
     expect(getSweepAngles(180, { lowerInDegrees: 10, upperInDegrees: 30 }, range)).toEqual({ lowerInDegrees: 5, upperInDegrees: 185 });
@@ -125,7 +125,7 @@ describe('mapping', () => {
     expect(getSweepAngles(45, null, { lowerInDegrees: 145, upperInDegrees: 215 })).toEqual({ lowerInDegrees: 158, upperInDegrees: 203 });
   });
 
-  it('should find the sweep a machine oscillates through among those its select offers', () => {
+  test('should find the sweep a machine oscillates through among those its select offers', () => {
     const offered = ['off', 45, 90, 180, 350] as const;
     expect(getSweep({ lowerInDegrees: 5, upperInDegrees: 355 }, offered)).toBe(350);
     expect(getSweep({ lowerInDegrees: 5, upperInDegrees: 60 }, offered)).toBeUndefined();
@@ -133,21 +133,21 @@ describe('mapping', () => {
     expect(getSweep(null, offered)).toBeUndefined();
   });
 
-  it('should clamp a heating setpoint to whole degrees from 1 to 37 °C', () => {
+  test('should clamp a heating setpoint to whole degrees from 1 to 37 °C', () => {
     expect(clampHeatTarget(21.4)).toBe(21);
     expect(clampHeatTarget(-5)).toBe(1);
     expect(clampHeatTarget(50)).toBe(37);
     expect(clampHeatTarget(Number.NaN)).toBe(21);
   });
 
-  it('should find the nearest target humidity, the higher one at an equal distance', () => {
+  test('should find the nearest target humidity, the higher one at an equal distance', () => {
     expect(getNearestHumidityTarget(42)).toBe(40);
     expect(getNearestHumidityTarget(45)).toBe(50);
     expect(getNearestHumidityTarget(10)).toBe(30);
     expect(getNearestHumidityTarget(90)).toBe(70);
   });
 
-  it('should turn a Dyson index into the Matter air quality and level', () => {
+  test('should turn a Dyson index into the Matter air quality and level', () => {
     expect([0, 4, 7, 9, 11, 13].map(indexToAirQuality)).toEqual([
       AirQuality.AirQualityEnum.Good,
       AirQuality.AirQualityEnum.Fair,
@@ -165,17 +165,17 @@ describe('mapping', () => {
     ]);
   });
 
-  it('should take the air quality of the worst pollutant, and unknown without one', () => {
+  test('should take the air quality of the worst pollutant, and unknown without one', () => {
     expect(getAirQuality(createSensors({ nitrogenDioxideIndex: 9.5 }))).toBe(AirQuality.AirQualityEnum.Poor);
     expect(getAirQuality(createEmptySensors())).toBe(AirQuality.AirQualityEnum.Unknown);
   });
 
-  it('should encode a temperature and a humidity in hundredths', () => {
+  test('should encode a temperature and a humidity in hundredths', () => {
     expect(toMatterTemperature(21.456)).toBe(2146);
     expect(toMatterHumidity(45.5)).toBe(4550);
   });
 
-  it('should cut a long device name short, never its suffix', () => {
+  test('should cut a long device name short, never its suffix', () => {
     expect(composeDeviceName('Living Room', 'Night Mode')).toBe('Living Room Night Mode');
     expect(composeDeviceName('A very long living room name', 'Continuous Monitoring')).toBe('A very lon Continuous Monitoring');
   });
