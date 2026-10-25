@@ -3,7 +3,7 @@
  * @description What the setup page does: each action calls the plugin, changes the state of the page and redraws it.
  * @author Calvin Che
  * @created 2026-10-19
- * @version 1.0.0
+ * @version 1.1.0
  * @license Apache-2.0
  *
  * Copyright 2026 Calvin Che.
@@ -266,6 +266,9 @@ function checkName(draft: Draft, name: string): string {
 
 // Matterbridge does not tell its own page when a plugin adds or removes a device, so its device list waits for a reload.
 export const reloadNote = "Matterbridge's own list of devices shows the change once you reload its page.";
+
+/** A change of how a machine appears in Matter waits for a restart, which the plugin asks Matterbridge for as well. */
+export const restartNote = 'Restart Matterbridge to apply the new options in Matter: until then the machine keeps its current controls.';
 
 export async function removeDevice(device: StoredDevice): Promise<void> {
   const reply = await busy(`Removing ${device.name}…`, async () => api('DELETE device', undefined, `serialNumber=${encodeURIComponent(device.serialNumber)}`));

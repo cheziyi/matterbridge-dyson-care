@@ -3,7 +3,7 @@
  * @description The screen a run ends on: what it set up.
  * @author Calvin Che
  * @created 2026-10-19
- * @version 1.0.0
+ * @version 1.1.0
  * @license Apache-2.0
  *
  * Copyright 2026 Calvin Che.
@@ -21,16 +21,18 @@
  * limitations under the License.
  */
 
-import { goHome, reloadNote } from '../actions.js';
+import { goHome, reloadNote, restartNote } from '../actions.js';
 import { button } from '../components.js';
 import { type Child, h } from '../dom.js';
 import { view } from '../state.js';
 
 export function doneScreen(): Child[] {
   const names = view.saved;
+  const needsRestart = (view.setup?.devices ?? []).some((device) => names.includes(device.name) && device.needsRestart);
   return [
     h('header', {}, h('h1', {}, names.length === 1 ? `${names[0]} is set up` : `${names.length} machines are set up`)),
     h('p', { class: 'lead' }, 'They now appear in the Matter apps paired with Matterbridge. If Matterbridge is not paired yet, pair it from its home page.'),
+    needsRestart ? h('p', { class: 'help' }, h('strong', {}, restartNote)) : null,
     h('p', { class: 'help' }, reloadNote),
     h('div', { class: 'footer' }, button('Done', goHome, 'primary')),
   ];

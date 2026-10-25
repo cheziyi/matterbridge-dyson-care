@@ -1,13 +1,14 @@
 /**
  * @file src/module.ts
  * @description This file contains the Matterbridge platform for Dyson purifiers, fans, heaters and humidifiers controlled on the LAN and through the Dyson cloud.
- * @author Luca Liguori
- * @contributor Calvin Che
- * @created 2025-06-15
- * @version 3.0.0
+ * @author Calvin Che
+ * @contributor Luca Liguori
+ * @created 2026-10-19
+ * @version 1.1.0
  * @license Apache-2.0
  *
- * Copyright 2025, 2026, 2027 Luca Liguori.
+ * Copyright 2026 Calvin Che.
+ * Copyright 2025, 2026 Luca Liguori, for the platform scaffolding from the Matterbridge plugin template.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -51,8 +52,9 @@ import {
   toDysonMachine,
   withoutLanPassword,
 } from './config.js';
-import { addReportedSensors, fitToCapabilities, getAvailableControls, hasSameControls, noReportedSensors, type ReportedSensors } from './controls.js';
+import { addReportedSensors, fitToCapabilities, getAvailableControls, hasSameControls, noReportedSensors } from './controls.js';
 import { describeSignInFailure, getErrorMessage, isSignInRequired, type SignInStep, signInRequiredStatus } from './errors.js';
+import { EndpointIds, EndpointIdStore } from './platform/endpointIds.js';
 import { getMachineUpdate } from './platform/machineSync.js';
 import { SensorStore } from './platform/sensorStore.js';
 import { parseSetupRevision, SetupRevisions } from './platform/setupRevisions.js';
@@ -96,10 +98,13 @@ export class DysonPlatform extends MatterbridgeDynamicPlatform implements SetupP
   /** The running devices, by the serial number of their machine. */
   private readonly accessories = new Map<string, DysonAccessory>();
   private readonly sensorStore = new SensorStore(() => this.context);
+  private readonly endpointIdStore = new EndpointIdStore(() => this.context);
   /** Why a stored device is not running, by the serial number of its machine. */
   private readonly startErrors = new Map<string, string>();
   /** What the sensors of a machine read at the last successful setup check, by its serial number, until the device is stored. */
   private readonly probedSensors = new Map<string, EnvironmentalCareSensors>();
+  /** The devices whose stored options reach Matter at the next start of Matterbridge, by the serial number of their machine. */
+  private readonly restartRequired = new Set<string>();
   private pollTimer: NodeJS.Timeout | undefined;
   private syncTimer: NodeJS.Timeout | undefined;
   private pollIntervalInSeconds: number;
@@ -231,13 +236,15 @@ export class DysonPlatform extends MatterbridgeDynamicPlatform implements SetupP
       if (status?.isReachable === true) state = 'online';
       else if (status?.isConnecting === true) state = 'connecting';
       else if (status !== undefined) state = 'offline';
-      const capabilities = accessory?.capabilities ?? this.readCapabilities(device);
+      // What the machine takes now, which its options are offered from, and what its endpoints were built from without an account to read it.
+      const capabilities = this.readCapabilities(device) ?? accessory?.capabilities;
       devices.push({
         ...withoutLanPassword(device),
         status: state,
         isTriedOnLan: isTriedOnLan(device),
         hostType: status?.hostType,
         error: status === undefined ? this.startErrors.get(device.serialNumber) : status.lastError,
+        needsRestart: this.restartRequired.has(device.serialNumber),
         capabilities,
         controls: capabilities === undefined ? undefined : getAvailableControls(capabilities),
         reportedSensors: (await this.sensorStore.read(device)) ?? noReportedSensors,
@@ -367,7 +374,7 @@ export class DysonPlatform extends MatterbridgeDynamicPlatform implements SetupP
    * Store a device, adding it or replacing the stored device of the same machine
    *
    * @param {DysonDeviceConfig} device The device.
-   * @returns {Promise<void>} Resolves when the device is stored and started, restarted or updated.
+   * @returns {Promise<void>} Resolves when the device is stored and started or updated, or noted for the next start of Matterbridge.
    * @throws {Error} When another stored device already has the name.
    */
   async saveDevice(device: DysonDeviceConfig): Promise<void> {
@@ -426,8 +433,8 @@ export class DysonPlatform extends MatterbridgeDynamicPlatform implements SetupP
    * Read the state and the readings of every running device once
    *
    * A device whose machine has not answered the read before this one is left out, so that the others are still read on
-   * time. A machine that gave a reading its device shows nowhere yet has the device built again in Matter, with a
-   * place for it.
+   * time. A machine that gave a reading its device shows nowhere yet has it noted: the device gets a place for it at
+   * the next start of Matterbridge.
    *
    * @returns {Promise<void>} Resolves when every device that was read answered or failed.
    */
@@ -555,7 +562,7 @@ export class DysonPlatform extends MatterbridgeDynamicPlatform implements SetupP
    * Make the running devices match a new device list
    *
    * @param {DysonDeviceConfig[]} devices The new list.
-   * @returns {Promise<void>} Resolves when every device is started, stopped, restarted or updated.
+   * @returns {Promise<void>} Resolves when every device is started, stopped or updated.
    */
   private async applyDevices(devices: DysonDeviceConfig[]): Promise<void> {
     await this.enqueueChange(async () => this.reconcile(devices));
@@ -571,21 +578,23 @@ export class DysonPlatform extends MatterbridgeDynamicPlatform implements SetupP
     });
     this.storeConfig();
     for (const device of previous) {
-      if (!this.devices.some((candidate) => candidate.serialNumber === device.serialNumber)) await this.stopDevice(device, true);
+      if (!this.devices.some((candidate) => candidate.serialNumber === device.serialNumber)) await this.stopDevice(device);
     }
     for (const device of this.devices) {
       const before = previous.find((candidate) => candidate.serialNumber === device.serialNumber);
       const accessory = this.accessories.get(device.serialNumber);
       if (before === undefined || accessory === undefined) {
         await this.startDevice(device);
-      } else if (!hasSameExposure(before, device) || !this.hasSameControls(accessory, device)) {
-        if (hasSameExposure(before, device)) this.log.notice(`"${device.name}" takes other settings than when it was set up: it is built again in Matter`);
-        // The name and the clusters of a registered endpoint cannot change, so the endpoints are built again.
-        await this.stopDevice(before, false);
-        await this.startDevice(device);
-      } else if (!hasSameMachine(before, device) && this.account !== undefined) {
-        await accessory.updateConnection(this.createClientFactory(device, this.account));
+        continue;
       }
+      // The endpoints of a registered device cannot change while Matterbridge runs: the device keeps the ones it was
+      // built with, and gets its new ones at the next start.
+      if (!hasSameExposure(before, device) || !this.hasSameControls(accessory, device)) {
+        if (hasSameExposure(before, device) && !this.restartRequired.has(device.serialNumber)) this.log.notice(`"${device.name}" takes other settings than when it was set up`);
+        this.requireRestart(device);
+      }
+      await accessory.updateConfig(device);
+      if (!hasSameMachine(before, device) && this.account !== undefined) await accessory.updateConnection(this.createClientFactory(device, this.account));
     }
   }
 
@@ -606,10 +615,9 @@ export class DysonPlatform extends MatterbridgeDynamicPlatform implements SetupP
    * A device that cannot start is logged and retried on the next read of the machine list, never thrown.
    *
    * @param {DysonDeviceConfig} device The device.
-   * @param {ReportedSensors} [knownSensors] The readings its machine has given. Left out, the stored ones are used.
    * @returns {Promise<void>} Resolves when the device runs, or could not be started.
    */
-  private async startDevice(device: DysonDeviceConfig, knownSensors?: ReportedSensors): Promise<void> {
+  private async startDevice(device: DysonDeviceConfig): Promise<void> {
     const { account } = this;
     if (account === undefined) {
       this.startErrors.set(device.serialNumber, 'No Dyson account is signed in: sign in in the setup page');
@@ -618,21 +626,26 @@ export class DysonPlatform extends MatterbridgeDynamicPlatform implements SetupP
     const registered: MatterbridgeEndpoint[] = [];
     let accessory: DysonAccessory | undefined;
     try {
-      const reportedSensors = knownSensors ?? (await this.sensorStore.read(device)) ?? noReportedSensors;
+      const reportedSensors = (await this.sensorStore.read(device)) ?? noReportedSensors;
+      const ids = new EndpointIds(await this.endpointIdStore.read(device));
       accessory = new DysonAccessory({
         config: device,
         createClient: this.createClientFactory(device, account),
         reportedSensors,
         log: this.log,
         vendorId: this.matterbridge.aggregatorVendorId,
+        ids,
       });
       for (const endpoint of accessory.endpoints) {
         await this.registerDevice(endpoint);
         registered.push(endpoint);
       }
       await accessory.clearReadings();
+      await this.endpointIdStore.write(device, ids.toStore());
       this.accessories.set(device.serialNumber, accessory);
       this.startErrors.delete(device.serialNumber);
+      // A device that starts is built from its stored options.
+      this.restartRequired.delete(device.serialNumber);
       this.log.info(`"${device.name}" started with ${accessory.endpoints.length} Matter endpoint(s)`);
       // Not awaited: a machine that does not answer must not hold up the start of the others.
       void accessory.start();
@@ -646,35 +659,59 @@ export class DysonPlatform extends MatterbridgeDynamicPlatform implements SetupP
   }
 
   /**
-   * Build again in Matter each device whose machine gave a reading it shows nowhere yet
+   * Note each device whose machine gave a reading it shows nowhere yet, which gets its place at the next start of Matterbridge
    *
    * Runs inside the queue of changes.
    *
-   * @returns {Promise<void>} Resolves when every such device has a place for the reading.
+   * @returns {Promise<void>} Resolves when every such reading is stored.
    */
   private async exposeNewSensors(): Promise<void> {
     for (const device of this.devices) {
       const news = this.accessories.get(device.serialNumber)?.takeNewlyReportedSensors();
       if (news === undefined) continue;
-      const { reported } = news;
-      await this.sensorStore.write(device, reported);
+      await this.sensorStore.write(device, news.reported);
       if (!news.needsRebuild) continue;
-      this.log.notice(`"${device.name}" gave a reading it shows nowhere in Matter yet: it is built again in Matter`);
-      await this.stopDevice(device, false);
-      await this.startDevice(device, reported);
+      this.log.notice(`"${device.name}" gave a reading it shows nowhere in Matter yet`);
+      this.requireRestart(device);
     }
   }
 
-  private async stopDevice(device: DysonDeviceConfig, shouldForget: boolean): Promise<void> {
+  /**
+   * Note that a device is built again at the next start of Matterbridge, and ask for the restart
+   *
+   * The endpoints of a registered device cannot change while Matterbridge runs. Taking them away and registering them
+   * again makes the Matter apps take the device for a new one, with its room and its automations lost. Across a restart
+   * Matterbridge keeps the endpoint numbers, so the apps keep the device. Until the restart, the device keeps the
+   * endpoints it was built with.
+   *
+   * @param {DysonDeviceConfig} device The device.
+   * @returns {void}
+   */
+  private requireRestart(device: DysonDeviceConfig): void {
+    if (!this.restartRequired.has(device.serialNumber)) {
+      this.log.notice(`"${device.name}" is built again with its new options at the next restart of Matterbridge: until then it keeps its current ones`);
+    }
+    this.restartRequired.add(device.serialNumber);
+    this.wssSendRestartRequired();
+  }
+
+  /**
+   * Stop a removed device, take its Matter endpoints away and forget the readings of its machine
+   *
+   * @param {DysonDeviceConfig} device The device.
+   * @returns {Promise<void>} Resolves when the device is stopped and its readings are forgotten.
+   */
+  private async stopDevice(device: DysonDeviceConfig): Promise<void> {
     const { name, serialNumber } = device;
     const accessory = this.accessories.get(serialNumber);
     this.accessories.delete(serialNumber);
     this.startErrors.delete(serialNumber);
+    this.restartRequired.delete(serialNumber);
     if (accessory !== undefined) {
       await accessory.dispose();
       for (const endpoint of accessory.endpoints) await this.unregisterDevice(endpoint);
       this.log.info(`"${name}" stopped`);
     }
-    if (shouldForget) await this.sensorStore.remove(device);
+    await this.sensorStore.remove(device);
   }
 }

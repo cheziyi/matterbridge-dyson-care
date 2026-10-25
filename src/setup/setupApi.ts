@@ -3,7 +3,7 @@
  * @description This file contains the REST API of the guided setup page, which Matterbridge serves through onFetch.
  * @author Calvin Che
  * @created 2026-10-19
- * @version 1.0.0
+ * @version 1.1.0
  * @license Apache-2.0
  *
  * Copyright 2026 Calvin Che.
@@ -82,6 +82,8 @@ export type SetupDevice = Omit<DysonDeviceConfig, 'apPasswordHash'> & {
   /** The broker its open connection goes through: the machine's own on the LAN, or the cloud's. */
   hostType?: HostType;
   error?: string;
+  /** Whether the stored options reach Matter at the next start of Matterbridge: until then the device keeps the ones it was built with. */
+  needsRestart: boolean;
   /** What the machine takes, while an account is signed in to read it with. */
   capabilities?: EnvironmentalCareCapabilities;
   /** The controls and the switches the device can have in Matter, while its capabilities are known. */
@@ -100,6 +102,7 @@ export interface SetupAccount {
   needsSignIn: boolean;
 }
 
+/** What the setup page shows of the plugin: the account, and the stored devices each with how it is doing. */
 export interface SetupState {
   /** The account the machines are reached through, or undefined when none is signed in. */
   account?: SetupAccount;

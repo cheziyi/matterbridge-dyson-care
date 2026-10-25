@@ -3,7 +3,7 @@
  * @description The home screen: the Dyson account, the machines that are set up, and the way to add more.
  * @author Calvin Che
  * @created 2026-10-19
- * @version 1.0.0
+ * @version 1.1.0
  * @license Apache-2.0
  *
  * Copyright 2026 Calvin Che.
@@ -157,6 +157,9 @@ function deviceRow(device: StoredDevice): HTMLElement {
       routeLine(device),
       ...reportLines(device.report),
       device.status !== 'online' && device.error ? h('p', { class: 'meta problem-text' }, device.error) : null,
+      device.needsRestart
+        ? h('p', { class: 'meta' }, h('strong', {}, 'Restart Matterbridge'), ' to apply the new options in Matter. Until then it keeps its current controls.')
+        : null,
     ),
     isConfirming
       ? h(

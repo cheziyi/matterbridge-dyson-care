@@ -3,7 +3,7 @@
  * @description This file contains the plugin configuration model and its validation.
  * @author Calvin Che
  * @created 2026-10-19
- * @version 1.0.0
+ * @version 1.1.0
  * @license Apache-2.0
  *
  * Copyright 2026 Calvin Che.
@@ -28,11 +28,13 @@ import { isValidBoolean, isValidNumber, isValidObject, isValidString } from 'mat
 /** What the machine is in Matter: an air purifier, or a fan. Both carry its fan control. */
 export const DEVICE_TYPES = ['airPurifier', 'fan'] as const;
 
+/** What the machine is in Matter: one of `DEVICE_TYPES`. */
 export type DeviceTypeOption = (typeof DEVICE_TYPES)[number];
 
 /** How the fan speed is exposed to Matter: as steps, or as a percentage alone. */
 export const FAN_CONTROLS = ['steps', 'percent'] as const;
 
+/** How the fan speed is exposed to Matter: one of `FAN_CONTROLS`. */
 export type FanControlOption = (typeof FAN_CONTROLS)[number];
 
 /**
@@ -42,6 +44,7 @@ export type FanControlOption = (typeof FAN_CONTROLS)[number];
  */
 export const FAN_AUTO_CONTROLS = ['native', 'switch', 'firstStep', 'lastStep'] as const;
 
+/** How the auto mode is exposed to Matter: one of `FAN_AUTO_CONTROLS`. */
 export type FanAutoControlOption = (typeof FAN_AUTO_CONTROLS)[number];
 
 /**
@@ -54,21 +57,25 @@ export type FanAutoControlOption = (typeof FAN_AUTO_CONTROLS)[number];
  */
 export const OSCILLATION_CONTROLS = ['native', 'switch', 'select', 'fan'] as const;
 
+/** How the oscillation is exposed to Matter: one of `OSCILLATION_CONTROLS`. */
 export type OscillationControlOption = (typeof OSCILLATION_CONTROLS)[number];
 
 /** How the night mode is exposed to Matter: natively, as the sleep wind of the fan control, alone or with an on/off switch beside it for apps that show no sleep wind. */
 export const NIGHT_MODE_CONTROLS = ['native', 'switch'] as const;
 
+/** How the night mode is exposed to Matter: one of `NIGHT_MODE_CONTROLS`. */
 export type NightModeControlOption = (typeof NIGHT_MODE_CONTROLS)[number];
 
 /** How the direction the machine blows its air is exposed to Matter: natively, as the airflow direction of the fan control, alone or with an on/off switch beside it for apps that show no airflow direction. */
 export const AIRFLOW_DIRECTION_CONTROLS = ['native', 'switch'] as const;
 
+/** How the airflow direction is exposed to Matter: one of `AIRFLOW_DIRECTION_CONTROLS`. */
 export type AirflowDirectionControlOption = (typeof AIRFLOW_DIRECTION_CONTROLS)[number];
 
 /** How the heating of a heater is exposed to Matter: as a thermostat that heats, as an on/off switch, or not at all. */
 export const HEAT_CONTROLS = ['thermostat', 'switch', 'hidden'] as const;
 
+/** How the heating is exposed to Matter: one of `HEAT_CONTROLS`. */
 export type HeatControlOption = (typeof HEAT_CONTROLS)[number];
 
 /**
@@ -77,6 +84,7 @@ export type HeatControlOption = (typeof HEAT_CONTROLS)[number];
  */
 export const HUMIDIFICATION_CONTROLS = ['switches', 'select', 'hidden'] as const;
 
+/** How the humidifying is exposed to Matter: one of `HUMIDIFICATION_CONTROLS`. */
 export type HumidificationControlOption = (typeof HUMIDIFICATION_CONTROLS)[number];
 
 /**
@@ -95,15 +103,20 @@ export const SETTING_CONTROLS = [
   'hasWaterHardnessSelect',
 ] as const;
 
+/** A setting that adds a switch or a mode select for a control of the machine: one of `SETTING_CONTROLS`. */
 export type SettingControlKey = (typeof SETTING_CONTROLS)[number];
 
 /** How the find and follow of a machine that turns to the people it finds is exposed to Matter: as an on/off switch, as a mode select of off, follow and scan, or not at all. */
 export const FIND_AND_FOLLOW_CONTROLS = ['switch', 'select', 'hidden'] as const;
 
+/** How the find and follow is exposed to Matter: one of `FIND_AND_FOLLOW_CONTROLS`. */
 export type FindAndFollowControlOption = (typeof FIND_AND_FOLLOW_CONTROLS)[number];
 
+/** How often, in seconds, the state and the readings of each machine are read unless the configuration says otherwise. */
 export const defaultPollIntervalInSeconds = 30;
+/** The shortest poll interval accepted, in seconds. */
 export const minPollIntervalInSeconds = 10;
+/** The longest poll interval accepted, in seconds. */
 export const maxPollIntervalInSeconds = 3600;
 
 /** The longest device name accepted, which is also the longest Matter node label. */
@@ -199,6 +212,7 @@ export interface DysonAccountConfig extends DysonAccount {
   email: string;
 }
 
+/** The configuration of the platform as Matterbridge stores it: the account, the devices and the revision are written by the plugin itself, the poll interval in the config editor. */
 export type DysonPlatformConfig = BasePlatformConfig & {
   /** A `DysonAccountConfig`, or what another version or an edit by hand left there: see `parseAccountConfig`. */
   account?: object | string | number | boolean | null;
@@ -562,8 +576,24 @@ export function hasSameMachine(left: DysonDeviceConfig, right: DysonDeviceConfig
  *
  * @param {DysonDeviceConfig} left One device.
  * @param {DysonDeviceConfig} right The other device.
- * @returns {boolean} True when both have the same name in Matter, the same controls, switches and sensors, and the same endpoints for them.
+ * @returns {boolean} True when both have the same controls, switches and sensors, and the same endpoints for them. The name is no part of it: it is the label of the device in Matter, which changes in place.
  */
 export function hasSameExposure(left: DysonDeviceConfig, right: DysonDeviceConfig): boolean {
-  return left.name === right.name && EXPOSURE_SETTINGS.every((key) => left[key] === right[key]);
+  return EXPOSURE_SETTINGS.every((key) => left[key] === right[key]);
+}
+
+/**
+ * Take the settings that decide the endpoints of a device from another device
+ *
+ * They are the settings `hasSameExposure` compares. A running device keeps the ones it was built with: a change of
+ * them reaches Matter when the device is built again, at the next start of Matterbridge.
+ *
+ * @param {DysonDeviceConfig} device The device, whose other settings are kept.
+ * @param {DysonDeviceConfig} source The device whose exposure settings are taken.
+ * @returns {DysonDeviceConfig} The device with the exposure settings of the source.
+ */
+export function withExposureOf(device: DysonDeviceConfig, source: DysonDeviceConfig): DysonDeviceConfig {
+  const copy: DysonDeviceConfig = { ...device };
+  for (const key of EXPOSURE_SETTINGS) Object.assign(copy, { [key]: source[key] });
+  return copy;
 }

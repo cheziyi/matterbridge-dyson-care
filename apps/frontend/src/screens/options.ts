@@ -3,7 +3,7 @@
  * @description The Options step: how the fan, its auto mode, oscillation and night mode, the find and follow, the heating, the humidifying, the clean cycle and the readings of a machine appear in Matter, one section each, and whether as one device.
  * @author Calvin Che
  * @created 2026-10-19
- * @version 1.0.0
+ * @version 1.1.0
  * @license Apache-2.0
  *
  * Copyright 2026 Calvin Che.
@@ -668,7 +668,11 @@ export function optionsScreen(): Child[] {
     connectionSection(draft),
     draft.isNew
       ? null
-      : h('p', { class: 'help' }, 'Changing any of these but the connection rebuilds this machine in Matter. Your Matter app may take a moment to show the change.'),
+      : h(
+          'p',
+          { class: 'help' },
+          'Changing any of these but the name and the connection takes effect at the next restart of Matterbridge, which this page and Matterbridge ask for. Until then the machine keeps its current controls.',
+        ),
     notice(),
     h(
       'div',
