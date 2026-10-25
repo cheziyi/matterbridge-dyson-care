@@ -1,6 +1,6 @@
 {
   "name": "matterbridge-dyson-care-frontend",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Guided setup page of the Matterbridge Dyson Care plugin",
   "private": true,
   "type": "module",
