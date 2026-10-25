@@ -318,6 +318,9 @@ describe('DysonPlatform', () => {
     vi.mocked(requestLoginCode).mockResolvedValueOnce('challenge-1');
     expect(await platform.requestLoginCode('someone@example.com', 'GB')).toBe('challenge-1');
     expect(requestLoginCode).toHaveBeenCalledWith({ email: 'someone@example.com', country: 'GB', timeoutInMs: machineTimeoutInMs });
+    // An account that signs in with its password alone is emailed no code.
+    vi.mocked(requestLoginCode).mockResolvedValueOnce(null);
+    expect(await platform.requestLoginCode('someone@example.com', 'GB')).toBeNull();
   });
 
   test('should explain and log a sign in the cloud refuses', async () => {
@@ -330,6 +333,8 @@ describe('DysonPlatform', () => {
     await expect(platform.signIn({ email: account.email, password: 'wrong', challengeId: 'challenge-1', otpCode: '000000', country: 'GB' })).rejects.toThrow(
       'Dyson did not accept the password or the code: check both, or ask for a new code (HTTP 400)',
     );
+    vi.mocked(login).mockRejectedValueOnce(new DysonError('Dyson request to /v3/userregistration/authenticate failed', 401));
+    await expect(platform.signIn({ email: account.email, password: 'wrong', country: 'GB' })).rejects.toThrow('Dyson did not accept the password: check it (HTTP 401)');
     expect(platform.config.account).toEqual(account);
   });
 
@@ -549,9 +554,10 @@ describe('DysonPlatform', () => {
     expect(state.devices[0]).toMatchObject({ status: 'offline' });
   });
 
-  test('should connect the devices again when an account is signed in again', async () => {
+  test('should connect the devices again when an account is signed in again, with its password alone', async () => {
     vi.mocked(login).mockResolvedValueOnce(account);
-    await platform.signIn({ email: account.email, password: 'secret', challengeId: 'challenge-2', otpCode: '654321', country: 'GB' });
+    await platform.signIn({ email: account.email, password: 'secret', country: 'GB' });
+    expect(login).toHaveBeenCalledWith({ email: account.email, password: 'secret', country: 'GB', timeoutInMs: machineTimeoutInMs });
     await settle();
     expect(platform.getDeviceBySerialNumber(purifierCool.serialNumber)?.getAttribute(BridgedDeviceBasicInformation, 'reachable')).toBe(true);
   });

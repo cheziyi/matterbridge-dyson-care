@@ -117,22 +117,27 @@ export type FoundMachine = Omit<DysonMachine, 'apPasswordHash'> & {
   support: MachineSupport;
 };
 
-/** What the sign in takes, besides the account's country. */
-export interface SignInRequest {
+/** What the sign in takes: the password with the code the cloud emailed, or the password alone for an account that signs in without a code. */
+export type SignInRequest = {
   email: string;
   password: string;
-  /** What the request for a login code answered. */
-  challengeId: string;
-  /** The code the cloud emailed. */
-  otpCode: string;
   country: string;
-}
+} & (
+  | {
+      /** What the request for a login code answered. */
+      challengeId: string;
+      /** The code the cloud emailed. */
+      otpCode: string;
+    }
+  | { challengeId?: undefined; otpCode?: undefined }
+);
 
 /** What each request carries back when it worked, by its method and its path. The setup page reads its replies by it. */
 export interface SetupReplies {
   'GET state': { state: SetupState };
   'GET countries': { countries: string[] };
-  'POST login-code': { challengeId: string };
+  /** No challenge id for an account that signs in with its password alone: the cloud emailed it no code. */
+  'POST login-code': { challengeId: string | null };
   'POST login': { state: SetupState };
   /** Nothing but that it worked. Matterbridge answers a DELETE with 204 and no body. */
   'DELETE account': object;
@@ -151,7 +156,7 @@ export type SetupReply = ({ ok: true } & SetupReplies[keyof SetupReplies]) | { o
 export interface SetupPlatform {
   getSetupState: () => Promise<SetupState>;
   getCountries: () => Promise<string[]>;
-  requestLoginCode: (email: string, country: string) => Promise<string>;
+  requestLoginCode: (email: string, country: string) => Promise<string | null>;
   signIn: (request: SignInRequest) => Promise<void>;
   signOut: () => Promise<void>;
   listMachines: () => Promise<FoundMachine[]>;
@@ -241,6 +246,8 @@ function parseSignIn(body: Record<string, unknown>): SignInRequest | string {
   if (email === undefined) return 'Enter the email address of your Dyson account';
   if (country === undefined) return 'Pick the country of your Dyson account';
   if (!isValidString(body.password, 1, 256)) return 'Enter the password of your Dyson account';
+  // An account that signs in with its password alone was emailed no code.
+  if (body.challengeId === undefined && body.otpCode === undefined) return { email, password: body.password, country };
   if (!isValidString(body.challengeId, 1, 256)) return 'Ask for a new code: this sign in has no code to check';
   const otpCode = typeof body.otpCode === 'string' ? body.otpCode.trim() : '';
   if (!otpCodePattern.test(otpCode)) return 'Enter the code Dyson emailed you';

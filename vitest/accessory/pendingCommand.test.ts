@@ -7,6 +7,7 @@
 /* oxlint-disable unicorn/no-useless-undefined */
 
 import { type MachineSnapshot, PendingCommand } from '../../src/accessory/pendingCommand.js';
+import { heatTargetRange } from '../../src/mapping.js';
 import { bigQuiet, capabilitiesOf, createFakeClient, hotCool, humidifyCool, purifierCool } from '../fakeDyson.js';
 
 /**
@@ -77,7 +78,7 @@ describe('PendingCommand', () => {
     const pending = new PendingCommand();
     const idle = { ...createFakeClient(purifierCool).state, oscillationState: 'idle' as const };
     pending.requestOscillationOn(true);
-    expect(pending.take(snapshot({ state: idle }), () => undefined)).toEqual({ oscillationMode: 'idleOn' });
+    expect(pending.take(snapshot({ state: idle }), () => undefined)).toEqual({ oscillationMode: 'idleOn', oscillationAngles: { lowerInDegrees: 135, upperInDegrees: 225 } });
     pending.requestOscillationOn(false);
     expect(pending.take(snapshot(), () => undefined)).toEqual({ oscillationMode: 'off' });
     pending.requestOscillation('off');
@@ -88,6 +89,21 @@ describe('PendingCommand', () => {
     pending.requestOscillationOn(true);
     pending.requestOscillation(90);
     expect(pending.take(snapshot({ isSweepSelect: false }), () => undefined)).toEqual({ oscillationMode: 'on', oscillationPresetAngleInDegrees: 90 });
+  });
+
+  test('should turn the oscillation on alone at the angles or the preset the machine was last seen at', () => {
+    const pending = new PendingCommand();
+    pending.requestOscillationOn(true);
+    expect(pending.take(snapshot(), () => undefined)).toEqual({ oscillationMode: 'on', oscillationAngles: { lowerInDegrees: 135, upperInDegrees: 225 } });
+    const barrel = { ...createFakeClient(humidifyCool).state, oscillationPresetAngleInDegrees: 90 as const };
+    pending.requestOscillationOn(true);
+    expect(pending.take(snapshot({ state: barrel, capabilities: capabilitiesOf(humidifyCool), isSweepSelect: false }), () => undefined)).toEqual({
+      oscillationMode: 'on',
+      oscillationPresetAngleInDegrees: 90,
+    });
+    // Off needs no angle.
+    pending.requestOscillationOn(false);
+    expect(pending.take(snapshot(), () => undefined)).toEqual({ oscillationMode: 'off' });
   });
 
   test('should breeze a machine that tilts, and go back to its last angle', () => {
@@ -219,7 +235,7 @@ describe('PendingCommand', () => {
     expect(pending.take(off, () => undefined)).toEqual({ autoMode: true });
     pending.requestControl({ findAndFollowMode: 'off' });
     expect(pending.take(off, () => undefined)).toEqual({ findAndFollowMode: 'off' });
-    pending.requestHeatTarget(24);
+    pending.requestHeatTarget(24, heatTargetRange);
     expect(pending.take(off, () => undefined)).toEqual({ targetTemperatureInC: 24 });
     pending.requestControl({ autoHumidification: true });
     expect(pending.take(off, () => undefined)).toEqual({ autoHumidification: true });
@@ -245,9 +261,9 @@ describe('PendingCommand', () => {
 
   test('should clamp a heating setpoint, and drop what was asked when it is cleared', () => {
     const pending = new PendingCommand();
-    pending.requestHeatTarget(40.4);
+    pending.requestHeatTarget(40.4, heatTargetRange);
     expect(pending.take(snapshot({ capabilities: capabilitiesOf(hotCool) }), () => undefined)).toEqual({ targetTemperatureInC: 37 });
-    pending.requestHeatTarget(22);
+    pending.requestHeatTarget(22, heatTargetRange);
     pending.requestFan();
     pending.requestOscillationFan();
     pending.clear();

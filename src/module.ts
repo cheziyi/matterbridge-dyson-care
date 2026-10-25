@@ -267,12 +267,14 @@ export class DysonPlatform extends MatterbridgeDynamicPlatform implements SetupP
   /**
    * Have the cloud email a login code to an account
    *
+   * An account that signs in with its password alone is emailed no code.
+   *
    * @param {string} email The address of the account.
    * @param {string} country The country of the account, as two capital letters. The cloud answers the same in any culture, so dyson-control's default one is used.
-   * @returns {Promise<string>} The challenge id to sign in with, with the code.
+   * @returns {Promise<string | null>} The challenge id to sign in with, with the code, or null for an account that signs in with its password alone.
    * @throws {Error} When the cloud refuses the address or does not answer, with what went wrong and its HTTP status.
    */
-  async requestLoginCode(email: string, country: string): Promise<string> {
+  async requestLoginCode(email: string, country: string): Promise<string | null> {
     try {
       return await requestLoginCode({ email, country, timeoutInMs: machineTimeoutInMs });
     } catch (error) {
@@ -285,17 +287,17 @@ export class DysonPlatform extends MatterbridgeDynamicPlatform implements SetupP
    *
    * The password is used once and never stored: the account holds a token.
    *
-   * @param {SignInRequest} request The address, the password, the emailed code and its challenge id, and the country.
+   * @param {SignInRequest} request The address, the password, the emailed code and its challenge id unless the account signs in without one, and the country.
    * @returns {Promise<void>} Resolves when the account is stored and the devices are connected through it.
    * @throws {Error} When the cloud refuses the password or the code, with what went wrong and its HTTP status.
    */
   async signIn(request: SignInRequest): Promise<void> {
-    const { email, password, challengeId, otpCode, country } = request;
+    const { email } = request;
     let account: DysonAccount;
     try {
-      account = await login({ email, password, challengeId, otpCode, country, timeoutInMs: machineTimeoutInMs });
+      account = await login({ ...request, timeoutInMs: machineTimeoutInMs });
     } catch (error) {
-      throw this.signInFailure(error, 'login', `The sign in to the Dyson account ${email} failed`);
+      throw this.signInFailure(error, request.challengeId === undefined ? 'password' : 'login', `The sign in to the Dyson account ${email} failed`);
     }
     this.log.notice(`Signed in to the Dyson account ${email}`);
     const signedIn: DysonAccountConfig = { ...account, email };

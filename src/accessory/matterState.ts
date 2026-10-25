@@ -238,7 +238,7 @@ async function applyFilters(endpoint: MatterbridgeEndpoint, layout: AccessoryLay
 async function applyThermostat(endpoint: MatterbridgeEndpoint, layout: AccessoryLayout, state: EnvironmentalCareState, roomTemperatureInC: number | null): Promise<void> {
   const isHeating = state.fanPower && state.heatMode === 'heat';
   await endpoint.updateAttribute(Thermostat, 'systemMode', isHeating ? Thermostat.SystemMode.Heat : Thermostat.SystemMode.Off);
-  const target = state.targetTemperatureInC === null ? null : clampHeatTarget(state.targetTemperatureInC);
+  const target = state.targetTemperatureInC === null ? null : clampHeatTarget(state.targetTemperatureInC, layout.heatTargetRange);
   if (target !== null) await endpoint.updateAttribute(Thermostat, 'occupiedHeatingSetpoint', toMatterTemperature(target));
   // A machine that does not say whether its heater runs has it running while the room is below the setpoint.
   const isBelowTarget = roomTemperatureInC === null || target === null || roomTemperatureInC < target;

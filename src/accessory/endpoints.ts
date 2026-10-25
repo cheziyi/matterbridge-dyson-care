@@ -42,7 +42,7 @@ import { AirQuality, BridgedDeviceBasicInformation, ConcentrationMeasurement, Fa
 import type { Semtag } from 'matterbridge/matter/types';
 
 import { maxDeviceNameLength } from '../config.js';
-import { composeDeviceName, defaultHeatTargetInC, getFanModeSequence, heatTargetRange } from '../mapping.js';
+import { composeDeviceName, defaultHeatTargetInC, getFanModeSequence } from '../mapping.js';
 import type { EndpointIds } from '../platform/endpointIds.js';
 import type { AccessoryLayout } from './layout.js';
 
@@ -364,11 +364,12 @@ export function createOscillationFanEndpoint(identity: EndpointIdentity, layout:
  * @returns {MatterbridgeEndpoint} The endpoint, with no room temperature until the first read, and nothing subscribed yet.
  */
 export function createThermostatEndpoint(identity: EndpointIdentity, layout: AccessoryLayout, main?: MatterbridgeEndpoint): MatterbridgeEndpoint {
+  const { min, max } = layout.heatTargetRange;
   const endpoint = createSideEndpoint(thermostat, identity, 'heater', 'T', 'Heater', main, false).createDefaultHeatingThermostatClusterServer(
     defaultHeatTargetInC,
     defaultHeatTargetInC,
-    heatTargetRange.min,
-    heatTargetRange.max,
+    min,
+    max,
   );
   if (layout.hasTemperatureUnit) endpoint.createDefaultThermostatUserInterfaceConfigurationClusterServer();
   return endpoint.addRequiredClusters();

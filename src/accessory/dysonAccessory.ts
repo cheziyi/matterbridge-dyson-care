@@ -397,6 +397,7 @@ export class DysonAccessory implements AccessoryEndpoints {
       pm10InUgPerM3: null,
       pm10Index: null,
       volatileOrganicCompoundsIndex: null,
+      dustIndex: null,
       nitrogenDioxideIndex: null,
       formaldehydeInUgPerM3: null,
       formaldehydeIndex: null,
@@ -628,7 +629,7 @@ export class DysonAccessory implements AccessoryEndpoints {
     this.listen(endpoint, () =>
       endpoint.subscribeAttribute(Thermostat, 'occupiedHeatingSetpoint', (setpoint: number, _previous: number, context: ActionContext) => {
         if (!isControllerWrite(context)) return;
-        this.pending.requestHeatTarget(setpoint / 100);
+        this.pending.requestHeatTarget(setpoint / 100, this.layout.heatTargetRange);
         this.scheduleCommand(`heating setpoint ${setpoint / 100} °C`);
       }),
     );

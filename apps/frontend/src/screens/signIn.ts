@@ -1,6 +1,6 @@
 /**
  * @file apps/frontend/src/screens/signIn.ts
- * @description The Sign in step: the address and the country of the Dyson account, then the code Dyson emails and the password.
+ * @description The Sign in step: the address and the country of the Dyson account, then the code Dyson emails and the password, or the password alone.
  * @author Calvin Che
  * @created 2026-10-19
  * @version 1.0.0
@@ -62,12 +62,30 @@ function addressForm(): Child[] {
       'div',
       { class: 'field' },
       h('label', { for: 'email' }, 'Email address'),
-      h('p', { class: 'help' }, 'The address you sign in to the MyDyson app with. Dyson emails it a code.'),
+      h('p', { class: 'help' }, 'The address you sign in to the MyDyson app with. Dyson emails it a code, unless the account signs in with its password alone.'),
       email,
     ),
     countryField(),
-    h('div', { class: 'footer' }, button('Cancel', goHome), button('Email me a code', submit, 'primary')),
+    h('div', { class: 'footer' }, button('Cancel', goHome), button('Continue', submit, 'primary')),
   ];
+}
+
+function passwordField(password: HTMLInputElement): HTMLElement {
+  return h(
+    'div',
+    { class: 'field' },
+    h('label', { for: 'password' }, 'Password of the account'),
+    h('p', { class: 'help' }, 'It is used once to sign in and is not stored.'),
+    password,
+  );
+}
+
+function anotherAddressButton(): HTMLButtonElement {
+  return button('Use another address', () => {
+    view.signIn = { email: view.signIn.email, country: view.signIn.country };
+    view.error = '';
+    render();
+  });
 }
 
 function codeForm(): Child[] {
@@ -83,18 +101,31 @@ function codeForm(): Child[] {
   return [
     h('p', { class: 'lead' }, `Dyson emailed a code to ${view.signIn.email}. It can take a minute to arrive.`),
     h('div', { class: 'field' }, h('label', { for: 'otp-code' }, 'Code from the email'), code),
-    h('div', { class: 'field' }, h('label', { for: 'password' }, 'Password of the account'), h('p', { class: 'help' }, 'It is used once to sign in and is not stored.'), password),
+    passwordField(password),
     h(
       'div',
       { class: 'footer' },
-      button('Use another address', () => {
-        view.signIn = { email: view.signIn.email, country: view.signIn.country };
-        view.error = '';
-        render();
-      }),
+      anotherAddressButton(),
       button('Send a new code', () => void requestCode(view.signIn.email, view.signIn.country)),
       button('Sign in', submit, 'primary'),
     ),
+  ];
+}
+
+// An account that signs in with its password alone is emailed no code.
+function passwordForm(): Child[] {
+  const password = h('input', { type: 'password', id: 'password', autocomplete: 'current-password', maxLength: 256 });
+  const submit = (): void => {
+    if (password.value === '') return;
+    void signIn(password.value);
+  };
+  password.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') submit();
+  });
+  return [
+    h('p', { class: 'lead' }, `${view.signIn.email} signs in to Dyson with its password alone.`),
+    passwordField(password),
+    h('div', { class: 'footer' }, anotherAddressButton(), button('Sign in', submit, 'primary')),
   ];
 }
 
@@ -108,6 +139,6 @@ export function signInScreen(): Child[] {
       'Dyson machines are reached through the Dyson cloud, with your Dyson account. The plugin keeps the sign-in Dyson gives it in its configuration, and never your password.',
     ),
     notice(),
-    ...(view.signIn.challengeId === undefined ? addressForm() : codeForm()),
+    ...(view.signIn.challengeId === undefined ? addressForm() : view.signIn.challengeId === null ? passwordForm() : codeForm()),
   ];
 }

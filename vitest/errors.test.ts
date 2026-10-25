@@ -6,7 +6,7 @@
 
 import { DysonError } from 'dyson-control';
 
-import { describeSignInFailure, getErrorMessage, getErrorStatus, isSignInRequired } from '../src/errors.js';
+import { describeSignInFailure, getErrorMessage, getErrorStatus, isSignInRequired, type SignInStep } from '../src/errors.js';
 
 describe('errors', () => {
   test('should describe an error by its message, and anything else by its string form', () => {
@@ -22,9 +22,10 @@ describe('errors', () => {
   });
 
   test('should explain a failed sign in by its status, and keep the status', () => {
-    const failed = (status: number, step: 'code' | 'login'): string => describeSignInFailure(new DysonError('Dyson request failed', status), step);
+    const failed = (status: number, step: SignInStep): string => describeSignInFailure(new DysonError('Dyson request failed', status), step);
     expect(failed(401, 'code')).toMatch(/^Dyson refused the address: .* \(HTTP 401\)$/);
     expect(failed(401, 'login')).toBe('Dyson did not accept the password or the code: check both, or ask for a new code (HTTP 401)');
+    expect(failed(401, 'password')).toBe('Dyson did not accept the password: check it (HTTP 401)');
     expect(failed(429, 'code')).toBe('Dyson was asked for this moments ago: wait a minute, then try again (HTTP 429)');
     expect(failed(504, 'login')).toBe('The Dyson cloud did not answer: check that Matterbridge reaches the internet, then try again (HTTP 504)');
     expect(failed(503, 'code')).toMatch(/^The Dyson cloud did not answer: .* \(HTTP 503\)$/);

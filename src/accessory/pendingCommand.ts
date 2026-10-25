@@ -26,7 +26,9 @@ import type { EnvironmentalCareCapabilities, EnvironmentalCareControl, Environme
 import {
   clampHeatTarget,
   defaultTiltAngle,
+  getResumedOscillation,
   getSweepAngles,
+  type HeatTargetRange,
   type HumiditySelectValue,
   isOscillationSweep,
   isTiltFanAngle,
@@ -153,10 +155,11 @@ export class PendingCommand {
    * Ask for a heating setpoint
    *
    * @param {number} temperatureInC The setpoint in °C, which is clamped to what the heater takes.
+   * @param {HeatTargetRange} range The setpoints the heater takes.
    * @returns {void}
    */
-  requestHeatTarget(temperatureInC: number): void {
-    this.control.targetTemperatureInC = clampHeatTarget(temperatureInC);
+  requestHeatTarget(temperatureInC: number, range: HeatTargetRange): void {
+    this.control.targetTemperatureInC = clampHeatTarget(temperatureInC, range);
   }
 
   /**
@@ -167,6 +170,8 @@ export class PendingCommand {
    *  - auto off goes back to the speed the fan last ran at, or to speed 5 when it was never seen at one
    *  - a target humidity turns the humidifying on, and the machine with it
    *  - the oscillation of a machine paused while it stands by is turned on and off with its idle modes
+   *  - the oscillation of a machine with two angles or with presets turned on alone goes back to the angles or the preset
+   *    it was last seen at, which dyson-control takes it with
    *  - the breeze of a machine that tilts turned off goes back to the angle it was last seen at, or to 0°
    *  - the on/off of the oscillation fan and the fan set to off send nothing: the read back puts back the power of the
    *    machine, which they show. Its first speed stands a machine that does not tilt still
@@ -191,7 +196,10 @@ export class PendingCommand {
     const oscillationModes = machine.capabilities.oscillationModes;
     if (this.isOscillationOn !== undefined) {
       if (machine.isTilt) this.tilt = this.isOscillationOn ? 'breeze' : (machine.lastTiltAngle ?? defaultTiltAngle);
-      else control.oscillationMode = toOscillationMode(this.isOscillationOn, machine.state, oscillationModes);
+      else {
+        control.oscillationMode = toOscillationMode(this.isOscillationOn, machine.state, oscillationModes);
+        if (this.isOscillationOn) Object.assign(control, getResumedOscillation(machine.state, machine.capabilities));
+      }
     }
     if (this.tilt !== undefined) control.tiltAngleInDegrees = this.tilt;
     if (this.oscillation === 'off') control.oscillationMode = toOscillationMode(false, machine.state, oscillationModes);

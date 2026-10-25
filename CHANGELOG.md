@@ -4,6 +4,23 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] - Dev branch
+
+### Added
+
+- [setup]: Sign in with the password alone to an account that Dyson emails no code.
+- [devices]: Show the air quality of a machine of the first generation, from its dust and its VOC.
+
+### Changed
+
+- [devices]: Update to dyson-control 0.9.0.
+- [devices]: Offer only the setpoints a heater takes on its thermostat: 11 to 32 °C on a 635 or a 918.
+- [setup]: Name the first button of the sign in Continue, as Dyson may email no code.
+
+### Fixed
+
+- [devices]: Turn the oscillation on with the angles or the preset the machine was last at, as dyson-control 0.9.0 requires.
+
 ## [0.5.0] - 2026-10-25
 
 ### Added
