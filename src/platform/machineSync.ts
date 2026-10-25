@@ -3,7 +3,7 @@
  * @description This file contains what the machine list of the account changes about the stored devices.
  * @author Calvin Che
  * @created 2026-10-19
- * @version 1.0.0
+ * @version 1.1.0
  * @license Apache-2.0
  *
  * Copyright 2026 Calvin Che.
@@ -29,9 +29,11 @@ import { type DysonDeviceConfig, hasSameMachine } from '../config.js';
 /**
  * Work out what the machine list of the account changes about a stored device
  *
- * A device is matched by the serial number of its machine, and takes the variant, the firmware, the room name and the
- * password of its broker on the LAN the cloud reports for it now. It keeps its own name: the room name is that of the
- * MyDyson app, which several machines can share. It keeps its host too, which the setup page gives.
+ * A device is matched by the serial number of its machine, and takes the variant, the model, the firmware, the room name
+ * and the password of its broker on the LAN the cloud reports for it now. It keeps its own name: the room name is that
+ * of the MyDyson app, which several machines can share. It keeps its host too, which the setup page gives, and its
+ * product name: Matterbridge makes the identity of the device in Matter from it, so it stays as it was when the device
+ * was added.
  *
  * Edge cases:
  *  - a machine of another type than the stored one -> undefined, with a warning: its state is held another way
@@ -60,7 +62,6 @@ export function getMachineUpdate(stored: DysonDeviceConfig, machines: readonly D
     variant: match.variant,
     mqttRootTopicLevel: match.mqttRootTopicLevel,
     model: match.model,
-    productName: match.productName,
     firmwareVersion: match.firmwareVersion,
     firmwareCapabilities: match.firmwareCapabilities === undefined ? undefined : [...match.firmwareCapabilities],
     apPasswordHash: match.apPasswordHash,

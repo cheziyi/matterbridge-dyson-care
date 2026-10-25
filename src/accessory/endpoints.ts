@@ -57,7 +57,7 @@ export interface EndpointIdentity {
   label: string;
   /** The serial number of the machine, which neither a new name nor a new firmware changes. */
   serial: string;
-  /** The name the machine is sold under, such as `Purifier Cool`. */
+  /** The name the machine is sold under, such as `Purifier Cool`, as it was when the device was added: Matterbridge makes the unique id of the device from it, with the name, the serial number and the vendor name. */
   productName: string;
   /** The vendor id of the bridge, used for the bridged device information. */
   vendorId: number;

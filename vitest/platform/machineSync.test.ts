@@ -30,11 +30,13 @@ describe('machineSync', () => {
     });
   });
 
-  test('should drop a field the cloud no longer reports', () => {
+  test('should drop a field the cloud no longer reports, but keep the product name the device was added with', () => {
     const machine = { serialNumber: purifierCool.serialNumber, type: '438', name: 'Living Room' };
     const updated = getMachineUpdate(livingRoom, [machine], log);
-    expect(updated?.productName).toBeUndefined();
     expect(updated?.firmwareCapabilities).toBeUndefined();
+    // Matterbridge makes the identity of the device in Matter from the product name, so the cloud does not change it.
+    expect(updated?.productName).toBe('Purifier Cool');
+    expect(getMachineUpdate(livingRoom, [{ ...purifierCool, productName: 'Purifier Cool Formaldehyde' }], log)).toBeUndefined();
   });
 
   test('should take the password of the broker of a machine on the LAN, and keep the host given in the setup page', () => {
