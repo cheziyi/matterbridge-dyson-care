@@ -9,6 +9,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Added
 
 - [devices]: Add a fan as an option for the oscillation, in place of the rocking, for the apps that show neither the rocking nor a mode select. Its first speed stands the machine still and each speed above it is an angle it sweeps, narrowest first, and its fan mode Auto is the breeze of a humidifier whose barrel turns. The fan of the Big+Quiet tilts it to 0°, 25° and 50° and breezes in auto. The on/off of the fan is the power of the machine, and the fan's own on/off does nothing. A machine with no angle to make a speed of gets a switch instead.
+- [setup]: Offer the fan as a choice for the oscillation and the tilt in the Options step, with the speeds the machine would get, on a machine that has an angle to make a speed of. The home page describes it as a fan of its own.
 
 ### Changed
 
