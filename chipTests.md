@@ -1,5 +1,11 @@
 ## Chip tests
 
+The Matter CHIP conformance tests run against this plugin inside the `luligu/matterbridge:chip-test` container, driven by [scripts/run-chip-tests.mjs](./scripts/run-chip-tests.mjs) and configured by [chipTests.json](./chipTests.json). How the harness works is in [.agents/rules/chip-tests.instructions.md](./.agents/rules/chip-tests.instructions.md).
+
+### What the configured tests cover
+
+The plugin builds the Matter endpoints of a machine from what the Dyson cloud says the machine takes, which needs a Dyson account signed in, and the container has none. `chipTests.json` therefore starts the plugin with no account and no devices, so the bridge exposes its root node and its aggregator alone, and the three generic tests check the composition, the conformance and the default warnings of that node. They cover none of the clusters of a machine: see [Testing a machine](#testing-a-machine).
+
 ### Create and start the container (Linux, macOS, and Windows)
 
 Run the `luligu/matterbridge:chip-test` docker image:
@@ -33,26 +39,6 @@ In the shell:
 python3 src/python_testing/TC_DeviceBasicComposition.py
 python3 src/python_testing/TC_DeviceConformance.py
 python3 src/python_testing/TC_DefaultWarnings.py --bool-arg pixit_allow_default_vendor_id:true
-
-# OnOff cluster on endpoint 2 (outlet1)
-python3 scripts/tests/chipyaml/chiptool.py tests Test_TC_OO_2_1 --endpoint 2 --PICS /root/matterbridge.pics
-python3 scripts/tests/chipyaml/chiptool.py tests Test_TC_OO_2_2 --endpoint 2 --PICS /root/matterbridge.pics
-python3 scripts/tests/chipyaml/chiptool.py tests Test_TC_OO_2_6 --endpoint 2 --PICS /root/matterbridge.pics
-
-# Thermostat cluster on endpoint 3 (thermo1, an AUTO thermostat: Heating + Cooling + AutoMode features)
-python3 scripts/tests/chipyaml/chiptool.py tests Test_TC_TSTAT_2_1 --endpoint 3 --PICS /root/Matterbridge/matterbridge-plugin-template/thermostat.pics
-```
-
-Run only the OnOff cluster tests:
-
-```shell
-node scripts/run-chip-tests.mjs --test OO
-```
-
-Run only the Thermostat cluster tests:
-
-```shell
-node scripts/run-chip-tests.mjs --test TSTAT
 ```
 
 ### Stop the container
@@ -61,33 +47,12 @@ node scripts/run-chip-tests.mjs --test TSTAT
 node scripts/run-chip-tests.mjs --stop
 ```
 
-### Known Issues
+### Testing a machine
 
-- `Test_TC_OO_2_3` and `Test_TC_OO_2_4` require PICS `OO.S.F00` (OnOff Lighting feature). The plugin's
-  `onOffPlugInUnit` device on endpoint 2 exposes the `OnTime`/`OffWaitTime`/`StartUpOnOff` attributes but
-  does not implement the Lighting feature's functional timers/startup behavior, so both tests fail
-  (`Test_TC_OO_2_4` additionally requires a real device reboot, which this containerized DUT cannot
-  perform). Marked `"skip": true` in `chipTests.json`.
-- `TC_OO_2_7.py`: endpoint 2 does expose the `ScenesManagement` cluster, but `RecallScene` does not apply
-  a stored OnOff extension field set back to the OnOff attribute, so the test fails at the "OnOff should be
-  TRUE after RecallScene 0x02" assertion (step 5b). Marked `"skip": true` in `chipTests.json`.
-- Thermostat tests (endpoint 3, `thermo1`) use `thermostat.pics` (repo root) instead of
-  `/root/matterbridge.pics`, since the curated image PICS has no `TSTAT` section and the generic
-  `ci-pics-values` overclaims `TSTAT.S.F08`/`TSTAT.S.F0a` (Presets/ThermostatSuggestions) support this
-  device doesn't have. `thermo1` is registered via `createDefaultThermostatClusterServer(23, 21, 25, 2.5, 7,
-30, 16, 35)` in `src/module.ts` so its setpoint limits satisfy the Matter spec's 7 °C minimum for
-  `MinHeatSetpointLimit` (the library default of 0-50 °C fails `Test_TC_TSTAT_2_1`'s constraint check).
-- `Test_TC_TSTAT_3_2` requires PICS `TSTAT.C` (DUT acting as a Thermostat client); this plugin's thermostat
-  is server-only, so the test's role doesn't apply. Marked `"skip": true`.
-- `TC_TSTAT_2_2.py`: writing a `MinHeatSetpointLimit` that violates the AutoMode deadband against
-  `MinCoolSetpointLimit` is accepted instead of rejected with `ConstraintError`. This isn't missing
-  validation — `@matter/node`'s `ThermostatServer` (a matterbridge dependency, not matterbridge or this
-  plugin) reconciles the write by auto-adjusting the coupled `MinCoolSetpointLimit` (CHIP `Setpoints::Fix()`
-  semantics) instead of rejecting it, since `thermo1`'s `AbsMinCoolSetpointLimit` leaves headroom for that
-  adjustment. Not fixable from this repo. Marked `"skip": true`.
-- `TC_TSTAT_4_2.py`: `OpenCommissioningWindow` fails with `AdministratorCommissioning.StatusCode.Busy` (IM
-  Error 0x602, cluster-specific 0x02) even immediately after a fresh container restart — not specific to
-  the Thermostat cluster or this plugin. Marked `"skip": true`.
-- `TC_TSTAT_4_3.py` requires PICS `TSTAT.S.F08`/`TSTAT.S.F0a` (Presets/ThermostatSuggestions), neither of
-  which this thermostat (`FeatureMap=35`: Heating + Cooling + AutoMode only) implements. Marked
-  `"skip": true`.
+The cluster tests need a machine the container can reach: one of a Dyson account, on the network of the Docker host or through the Dyson cloud. The account is stored as the sign-in token Dyson gives the plugin, so sign in inside the container instead of writing the account into `chipTests.json`:
+
+1. Start the container, open the Matterbridge frontend it serves at `http://localhost:8585` and open the setup page of the plugin from its row. Sign in to the Dyson account and add the machine, with the options to test. The plugin stores the account and the device in the configuration of the container, which `--start` writes over: add them again after each `--start`.
+2. Read the endpoint numbers with the wildcard read of section 4 of the harness guide rather than counting: Matter numbers the endpoints in the order they are registered and keeps the numbers in the node storage afterwards. The plugin registers the main endpoint of a device first, then its thermostat, its switches, its mode selects and its oscillation fan in the order of `endpoints` in [src/accessory/dysonAccessory.ts](./src/accessory/dysonAccessory.ts), and its sensors last. A composed device has those as child endpoints of the main one.
+3. Add the tests to `chipTests.json` with `--endpoint` set accordingly, and a `chip:test:<cluster>` script to `package.json` for each cluster.
+
+What a machine exposes, so which clusters have tests to run, is in the README under [How it is built in Matter](./README.md#how-it-is-built-in-matter): the Fan Control with the Multi Speed, Auto, Rocking, Wind and Airflow Direction features as configured (`FAN`), On/Off on the main endpoint, the oscillation fan and every switch (`OO`), Mode Select on the selects (`MOD`), the Thermostat with the Heating feature on a heater (`TSTAT`) and its user interface configuration (`TSUIC`), HEPA and Activated Carbon Filter Monitoring on an air purifier that reports its filters (`HEPAFREMON`, `ACFREMON`), Air Quality and the concentration measurements of the pollutants on the air quality sensor (`AIRQUAL`, `PMICONC`, `PMKCONC`, `TVOCCONC`, `NDOCONC`, `FLDCONC`, `CDOCONC`), Temperature and Relative Humidity Measurement on the sensors (`TMP`, `RH`) and Bridged Device Basic Information on every device (`BRBINFO`). Find the runnable YAML and Python tests of each with the two list commands of section 5 of the harness guide. The curated `/root/matterbridge.pics` of the image has no Thermostat section, and the generic `ci-pics-values` overclaims the Presets and Thermostat Suggestions features, so the Thermostat tests need a PICS overlay of their own with `TSTAT.S=1` and the Heating feature alone. The plugin template's overlay for a Heating + Cooling + Auto Mode thermostat, which this repository no longer carries, is in its history as `thermostat.pics` and is a starting point.

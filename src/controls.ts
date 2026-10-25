@@ -184,6 +184,7 @@ export const REPORTED_SENSORS = [
   'carbonDioxide',
 ] as const satisfies readonly (keyof ReportedSensors)[];
 
+/** The readings of a machine that has given none yet. */
 export const noReportedSensors: Readonly<ReportedSensors> = {
   temperature: false,
   humidity: false,

@@ -22,7 +22,7 @@ description: 'Testing standards for unit tests in the project v.1.0.7'
 ## 3. Test Naming
 
 - Use descriptive test names that clearly indicate the behavior being tested.
-- Follow the format: `should [expected behavior] when [condition]`.
+- Start the name with `should` and state the behavior: `should [expected behavior]`, with `when [condition]` added where the behavior depends on one.
 
 ## 4. Test Data
 

@@ -24,7 +24,7 @@ describe('SensorStore', () => {
   } as unknown as NodeStorage;
   const device = { serialNumber: 'NK6-EU-MHA0001A' };
 
-  it('should keep the readings of a machine under its serial number', async () => {
+  test('should keep the readings of a machine under its serial number', async () => {
     const store = new SensorStore(() => storage);
     const reported = { ...noReportedSensors, temperature: true };
     await store.write(device, reported);
@@ -34,13 +34,13 @@ describe('SensorStore', () => {
     expect(await store.read(device)).toBeUndefined();
   });
 
-  it('should take a reading that is missing or not valid as not given', async () => {
+  test('should take a reading that is missing or not valid as not given', async () => {
     const store = new SensorStore(() => storage);
     values.set('sensors:NK6-EU-MHA0001A', { temperature: true, humidity: 'yes' });
     expect(await store.read(device)).toEqual({ ...noReportedSensors, temperature: true });
   });
 
-  it('should read and store nothing before the platform storage is ready', async () => {
+  test('should read and store nothing before the platform storage is ready', async () => {
     const store = new SensorStore(() => undefined);
     await store.write(device, noReportedSensors);
     expect(await store.read(device)).toBeUndefined();

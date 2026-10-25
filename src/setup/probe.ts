@@ -32,13 +32,16 @@ export const probeTimeoutInMs = 10_000;
 /** What a check of a machine found. */
 export const PROBE_STATUSES = ['ready', 'signInRequired', 'unsupported', 'unreachable', 'failed'] as const;
 
+/** What a check of a machine found: one of `PROBE_STATUSES`. */
 export type ProbeStatus = (typeof PROBE_STATUSES)[number];
 
 /** Why a machine of the account cannot be added, or `supported`. */
 export const MACHINE_SUPPORTS = ['supported', 'otherCategory', 'unknownType', 'otherBroker'] as const;
 
+/** Whether the plugin can control a machine of the account, or why not: one of `MACHINE_SUPPORTS`. */
 export type MachineSupport = (typeof MACHINE_SUPPORTS)[number];
 
+/** What a check of a machine found, with what it read from the machine when it answered. */
 export interface ProbeResult {
   status: ProbeStatus;
   machine: DysonMachine;

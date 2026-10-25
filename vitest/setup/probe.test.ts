@@ -41,14 +41,14 @@ describe('probe', () => {
     vi.clearAllMocks();
   });
 
-  it('should tell which machines of the account the plugin can control', () => {
+  test('should tell which machines of the account the plugin can control', () => {
     expect(getMachineSupport(purifierCool, account)).toBe('supported');
     expect(getMachineSupport({ ...purifierCool, category: 'robot' }, account)).toBe('otherCategory');
     expect(getMachineSupport({ ...purifierCool, remoteBrokerType: 'rabbitMq' }, account)).toBe('otherBroker');
     expect(getMachineSupport({ ...purifierCool, type: '999' }, account)).toBe('unknownType');
   });
 
-  it('should read the capabilities and the readings of a machine that answers, and disconnect', async () => {
+  test('should read the capabilities and the readings of a machine that answers, and disconnect', async () => {
     const sensors = createSensors();
     calls.getSensors.mockResolvedValueOnce(sensors);
     const result = await probeMachine(coolFan, account);
@@ -58,7 +58,7 @@ describe('probe', () => {
     expect(calls.disconnect).toHaveBeenCalledTimes(1);
   });
 
-  it('should tell what stands in the way of a machine that does not answer', async () => {
+  test('should tell what stands in the way of a machine that does not answer', async () => {
     calls.connect.mockRejectedValueOnce(new DysonError('Unauthorized', 401));
     expect(await probeMachine(purifierCool, account)).toEqual({ status: 'signInRequired', machine: purifierCool, message: 'Unauthorized' });
     calls.getState.mockRejectedValueOnce(new DysonError('The machine did not answer', 504));
@@ -75,7 +75,7 @@ describe('probe', () => {
     expect(await probeMachine(purifierCool, account)).toMatchObject({ status: 'failed', message: 'Broken' });
   });
 
-  it('should refuse a machine of a type the client does not know, without connecting', async () => {
+  test('should refuse a machine of a type the client does not know, without connecting', async () => {
     expect(await probeMachine({ ...purifierCool, type: '999' }, account)).toEqual({
       status: 'unsupported',
       machine: { ...purifierCool, type: '999' },
@@ -84,7 +84,7 @@ describe('probe', () => {
     expect(calls.connect).not.toHaveBeenCalled();
   });
 
-  it('should tell whether a search of the LAN finds a machine whose broker opens, and disconnect', async () => {
+  test('should tell whether a search of the LAN finds a machine whose broker opens, and disconnect', async () => {
     const machine = { ...purifierCool, apPasswordHash: 'hash-1' };
     expect(await searchLan(machine)).toBe(true);
     expect(calls.disconnect).toHaveBeenCalledTimes(1);
@@ -94,7 +94,7 @@ describe('probe', () => {
     expect(await searchLan(machine)).toBe(false);
   });
 
-  it('should not search the LAN for a machine the client cannot be built for', async () => {
+  test('should not search the LAN for a machine the client cannot be built for', async () => {
     expect(await searchLan(purifierCool)).toBe(false);
     expect(await searchLan({ ...purifierCool, type: '999', apPasswordHash: 'hash-1' })).toBe(false);
     expect(calls.connect).not.toHaveBeenCalled();
