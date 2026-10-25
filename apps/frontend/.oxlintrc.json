@@ -1,20 +1,11 @@
 {
   "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "ignorePatterns": [
-    "build/**",
-    "node_modules/**"
-  ],
+  "ignorePatterns": ["build/**", "node_modules/**"],
   "env": {
     "builtin": true,
     "browser": true
   },
-  "plugins": [
-    "eslint",
-    "typescript",
-    "unicorn",
-    "oxc",
-    "promise"
-  ],
+  "plugins": ["eslint", "typescript", "unicorn", "oxc", "promise"],
   "categories": {
     "correctness": "error",
     "suspicious": "warn",

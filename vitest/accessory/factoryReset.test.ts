@@ -13,8 +13,8 @@
 import type { MatterbridgeEndpoint } from 'matterbridge';
 import type { ActionContext } from 'matterbridge/matter';
 import { BridgedDeviceBasicInformation, OnOff, Thermostat } from 'matterbridge/matter/clusters';
-import { log, setupTest } from 'matterbridge/vitest-utils';
-import { addDevice, aggregator, createServerNode, createTestEnvironment, server, startServerNode, stopServerNode } from 'matterbridge/vitest-utils/matter';
+import { log, setupTest } from 'matterbridge/test-utils/vitest';
+import { addDevice, aggregator, createServerNode, createTestEnvironment, server, startServerNode, stopServerNode } from 'matterbridge/test-utils/vitest/matter';
 
 import { DysonAccessory } from '../../src/accessory/dysonAccessory.js';
 import { createDeviceConfig, createFakeClient, createSensors, factoryOf, type FakeClient, hotCool } from '../fakeDyson.js';

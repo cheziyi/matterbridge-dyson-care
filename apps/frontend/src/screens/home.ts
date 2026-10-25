@@ -50,7 +50,8 @@ function describeExposure(device: StoredDevice): string {
   if (has('hasAirflowDirection')) add(placeNames[device.airflowDirectionControl], 'the airflow direction');
   for (const [place, names] of byPlace) parts.push(`${names.join(', ')} ${place}`);
   if (has('hasHeat') && device.heatControl !== 'hidden') parts.push(device.heatControl === 'thermostat' ? 'a thermostat' : 'a heat switch');
-  if (has('hasHumidification') && device.humidificationControl !== 'hidden') parts.push(device.humidificationControl === 'select' ? 'a target humidity select' : 'humidify switches');
+  if (has('hasHumidification') && device.humidificationControl !== 'hidden')
+    parts.push(device.humidificationControl === 'select' ? 'a target humidity select' : 'humidify switches');
   const settings = settingControlKeys.filter((key) => device[key] && (controls === undefined || controls.settingControls.includes(key))).map((key) => settingNames[key]);
   if (settings.length > 0) parts.push(`a control for the ${settings.join(', ')}`);
   if (has('hasFilterLife') && device.deviceType === 'airPurifier') parts.push('the filter life');
@@ -60,9 +61,7 @@ function describeExposure(device: StoredDevice): string {
     has('hasAirQualitySensor') && device.hasAirQualitySensor && reported.airQuality ? 'air quality' : '',
     device.hasTemperatureSensor && reported.temperature ? 'temperature' : '',
     device.hasHumiditySensor && reported.humidity ? 'humidity' : '',
-  ].filter(
-    (name) => name !== '',
-  );
+  ].filter((name) => name !== '');
   if (sensors.length > 0) parts.push(`a sensor for the ${sensors.join(', ')}`);
   const list = parts.length === 1 ? parts[0] : `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]}`;
   return `${list}${device.isComposed ? ', all as one device' : ''}`;
@@ -198,7 +197,9 @@ function accountPanel(): Child {
     'section',
     { class: 'account' },
     h('p', { class: 'meta' }, `Signed in to Dyson as ${account.email}.`),
-    account.needsSignIn ? h('p', { class: 'notice problem', role: 'alert' }, 'The Dyson cloud no longer accepts this sign-in. Sign in again to keep the machines connected.') : null,
+    account.needsSignIn
+      ? h('p', { class: 'notice problem', role: 'alert' }, 'The Dyson cloud no longer accepts this sign-in. Sign in again to keep the machines connected.')
+      : null,
     h('div', { class: 'actions' }, ...actions),
   );
 }
@@ -210,7 +211,9 @@ export function homeScreen(): Child[] {
     h('header', {}, h('h1', {}, 'Dyson machines'), canAdd ? button('Add machines', () => void search(), 'primary') : null),
     notice(),
     accountPanel(),
-    devices.length === 0 && view.setup ? h('p', { class: 'empty' }, 'No machine is set up yet. Add one to control it from Matter.') : h('ul', { class: 'devices' }, ...devices.map(deviceRow)),
+    devices.length === 0 && view.setup
+      ? h('p', { class: 'empty' }, 'No machine is set up yet. Add one to control it from Matter.')
+      : h('ul', { class: 'devices' }, ...devices.map(deviceRow)),
     view.setup ? null : button('Try again', () => void loadState(), 'primary'),
   ];
 }

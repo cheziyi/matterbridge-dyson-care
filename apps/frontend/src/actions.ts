@@ -186,7 +186,9 @@ async function enterConnect(): Promise<void> {
 }
 
 export async function check(draft: Draft): Promise<void> {
-  const reply = await busy(`Connecting to ${draftLabel(draft)} through the Dyson cloud, and looking for it on your network…`, async () => api('POST probe', { machine: draft.machine }));
+  const reply = await busy(`Connecting to ${draftLabel(draft)} through the Dyson cloud, and looking for it on your network…`, async () =>
+    api('POST probe', { machine: draft.machine }),
+  );
   if (!reply.ok) {
     view.error = reply.error;
     render();

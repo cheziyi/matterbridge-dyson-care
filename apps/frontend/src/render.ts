@@ -27,7 +27,8 @@ export function render(): void {
   const active = document.activeElement;
   const activeId = active instanceof HTMLElement ? active.id : '';
   // Where the caret is in the field being typed in, so that a redraw while typing does not move it to the end.
-  const caret = active instanceof HTMLInputElement && (active.type === 'text' || active.type === 'password') ? { start: active.selectionStart, end: active.selectionEnd } : undefined;
+  const caret =
+    active instanceof HTMLInputElement && (active.type === 'text' || active.type === 'password') ? { start: active.selectionStart, end: active.selectionEnd } : undefined;
   const typed = new Map<string, string>();
   for (const input of root.querySelectorAll<HTMLInputElement>('input[type=text], input[type=email], input[type=password]')) {
     if (input.id !== '') typed.set(input.id, input.value);

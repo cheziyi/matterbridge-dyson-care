@@ -42,7 +42,13 @@ function addressForm(): Child[] {
     void requestCode(email.value.trim(), code);
   };
   return [
-    h('div', { class: 'field' }, h('label', { for: 'email' }, 'Email address'), h('p', { class: 'help' }, 'The address you sign in to the MyDyson app with. Dyson emails it a code.'), email),
+    h(
+      'div',
+      { class: 'field' },
+      h('label', { for: 'email' }, 'Email address'),
+      h('p', { class: 'help' }, 'The address you sign in to the MyDyson app with. Dyson emails it a code.'),
+      email,
+    ),
     countryField(),
     h('div', { class: 'footer' }, button('Cancel', goHome), button('Email me a code', submit, 'primary')),
   ];

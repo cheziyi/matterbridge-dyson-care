@@ -27,8 +27,8 @@ import {
   Thermostat,
   ThermostatUserInterfaceConfiguration,
 } from 'matterbridge/matter/clusters';
-import { log, setupTest } from 'matterbridge/vitest-utils';
-import { addDevice, aggregator, createServerNode, createTestEnvironment, startServerNode, stopServerNode } from 'matterbridge/vitest-utils/matter';
+import { log, setupTest } from 'matterbridge/test-utils/vitest';
+import { addDevice, aggregator, createServerNode, createTestEnvironment, startServerNode, stopServerNode } from 'matterbridge/test-utils/vitest/matter';
 
 import { DysonAccessory } from '../../src/accessory/dysonAccessory.js';
 import { readFanRequest } from '../../src/accessory/matterState.js';

@@ -41,6 +41,11 @@ export function connectScreen(): Child[] {
     unitHeader(draft, `Connecting to the ${machineLabel(draft.machine)} through the Dyson cloud.`),
     notice(),
     view.isBusy ? null : statusPanel(draft),
-    h('div', { class: 'footer' }, canRetry ? button('Try again', () => void check(draft)) : null, button(isOneOfMany ? 'Skip this one' : 'Cancel', isOneOfMany ? skipDraft : goHome)),
+    h(
+      'div',
+      { class: 'footer' },
+      canRetry ? button('Try again', () => void check(draft)) : null,
+      button(isOneOfMany ? 'Skip this one' : 'Cancel', isOneOfMany ? skipDraft : goHome),
+    ),
   ];
 }

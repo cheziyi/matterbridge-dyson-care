@@ -24,8 +24,8 @@ import {
 } from 'dyson-control';
 import type { PlatformConfig } from 'matterbridge';
 import { BridgedDeviceBasicInformation, FanControl, TemperatureMeasurement } from 'matterbridge/matter/clusters';
-import { log, setupTest } from 'matterbridge/vitest-utils';
-import { addMatterbridge, createServerNode, createTestEnvironment, getMatterbridge, startServerNode, stopServerNode } from 'matterbridge/vitest-utils/matter';
+import { log, setupTest } from 'matterbridge/test-utils/vitest';
+import { addMatterbridge, createServerNode, createTestEnvironment, getMatterbridge, startServerNode, stopServerNode } from 'matterbridge/test-utils/vitest/matter';
 
 import type { MachineClientHandlers } from '../src/accessory/dysonAccessory.js';
 import initializePlugin, { DysonPlatform, type DysonPlatformConfig, machineSyncIntervalInMs, machineTimeoutInMs } from '../src/module.js';

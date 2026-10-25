@@ -30,9 +30,16 @@ export function unitStrip(): Child {
   return h(
     'ol',
     { 'class': 'units', 'aria-label': 'Machines in this setup' },
-    ...view.handled.map((unit) => h('li', { class: unit.isSaved ? 'done' : 'skipped' }, h('strong', {}, unit.label), h('span', { class: 'meta' }, unit.isSaved ? 'Added' : 'Skipped'))),
+    ...view.handled.map((unit) =>
+      h('li', { class: unit.isSaved ? 'done' : 'skipped' }, h('strong', {}, unit.label), h('span', { class: 'meta' }, unit.isSaved ? 'Added' : 'Skipped')),
+    ),
     ...view.queue.map((draft, index) =>
-      h('li', { 'class': index === 0 ? 'current' : 'ahead', 'aria-current': index === 0 ? 'true' : undefined }, h('strong', {}, draftLabel(draft)), h('span', { class: 'meta' }, index === 0 ? doing : 'Waiting')),
+      h(
+        'li',
+        { 'class': index === 0 ? 'current' : 'ahead', 'aria-current': index === 0 ? 'true' : undefined },
+        h('strong', {}, draftLabel(draft)),
+        h('span', { class: 'meta' }, index === 0 ? doing : 'Waiting'),
+      ),
     ),
   );
 }
