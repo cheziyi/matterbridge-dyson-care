@@ -207,6 +207,7 @@ function getGivenSensors(sensors: EnvironmentalCareSensors): ReportedSensors {
   const indices = [
     sensors.pm25Index,
     sensors.pm10Index,
+    sensors.dustIndex,
     sensors.volatileOrganicCompoundsIndex,
     sensors.nitrogenDioxideIndex,
     sensors.formaldehydeIndex,

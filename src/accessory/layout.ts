@@ -25,7 +25,16 @@ import type { EnvironmentalCareCapabilities, FindAndFollowMode, TiltAngle } from
 
 import type { DeviceTypeOption, DysonDeviceConfig, SettingControlKey } from '../config.js';
 import { getAvailableControls, type ReportedSensors } from '../controls.js';
-import { type FanPosition, fanSteps, type HumiditySelectValue, humidityTargets, type OscillationFanPosition, type OscillationSelectValue } from '../mapping.js';
+import {
+  type FanPosition,
+  fanSteps,
+  getHeatTargetRange,
+  type HeatTargetRange,
+  type HumiditySelectValue,
+  humidityTargets,
+  type OscillationFanPosition,
+  type OscillationSelectValue,
+} from '../mapping.js';
 
 /** The pollutants an air quality sensor shows, each once the machine has given it. */
 export interface PollutantLayout {
@@ -78,6 +87,8 @@ export interface AccessoryLayout {
   hasAirflowDirection: boolean;
   hasAirflowDirectionSwitch: boolean;
   hasThermostat: boolean;
+  /** The heating setpoints the thermostat offers and a setpoint is clamped to. */
+  heatTargetRange: HeatTargetRange;
   /** Whether the thermostat shows the unit the machine shows a temperature in, which a controller sets. */
   hasTemperatureUnit: boolean;
   hasHeatSwitch: boolean;
@@ -149,6 +160,7 @@ export function getAccessoryLayout(config: DysonDeviceConfig, capabilities: Envi
     hasAirflowDirection: airflow !== 'hidden',
     hasAirflowDirectionSwitch: airflow === 'switch',
     hasThermostat: heat === 'thermostat',
+    heatTargetRange: getHeatTargetRange(capabilities.targetTemperatureRange),
     hasTemperatureUnit: heat === 'thermostat' && capabilities.temperatureUnits.length > 1,
     hasHeatSwitch: heat === 'switch',
     hasHumidifySwitch: humidification === 'switches',

@@ -129,7 +129,7 @@ export async function startSignIn(): Promise<void> {
 
 export async function requestCode(email: string, country: string): Promise<void> {
   view.signIn = { email, country };
-  const reply = await busy(`Asking Dyson to email a code to ${email}…`, async () => api('POST login-code', { email, country }));
+  const reply = await busy(`Asking Dyson how ${email} signs in…`, async () => api('POST login-code', { email, country }));
   if (!reply.ok) {
     view.error = reply.error;
     render();
@@ -139,9 +139,11 @@ export async function requestCode(email: string, country: string): Promise<void>
   render();
 }
 
-export async function signIn(password: string, otpCode: string): Promise<void> {
+export async function signIn(password: string, otpCode?: string): Promise<void> {
   const { email, country, challengeId } = view.signIn;
-  const reply = await busy('Signing in…', async () => api('POST login', { email, country, challengeId, password, otpCode }));
+  // An account that signs in with its password alone sends no code.
+  const code = typeof challengeId === 'string' ? { challengeId, otpCode } : {};
+  const reply = await busy('Signing in…', async () => api('POST login', { email, country, password, ...code }));
   if (!reply.ok) {
     view.error = reply.error;
     render();

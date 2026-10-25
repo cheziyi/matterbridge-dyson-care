@@ -447,7 +447,14 @@ describe('DysonAccessory', () => {
       await writeAsController(accessory.autoHumidifySwitch, 'OnOff', 'onOff', true);
       await writeAsController(accessory.oscillationSwitch, 'OnOff', 'onOff', true);
       await accessory.flushCommands();
-      expect(client.setState).toHaveBeenCalledWith({ fanPower: true, humidificationMode: 'humidify', autoHumidification: true, oscillationMode: 'on' });
+      // A barrel is turned on beside a preset: its first one, as it was last seen at custom.
+      expect(client.setState).toHaveBeenCalledWith({
+        fanPower: true,
+        humidificationMode: 'humidify',
+        autoHumidification: true,
+        oscillationMode: 'on',
+        oscillationPresetAngleInDegrees: 45,
+      });
       expect(accessory.humidifySwitch?.getAttribute(OnOff, 'onOff')).toBe(true);
       await accessory.dispose();
     });
@@ -1311,6 +1318,23 @@ describe('DysonAccessory', () => {
       await writeAsController(thermostat, 'ThermostatUserInterfaceConfiguration', 'temperatureDisplayMode', Fahrenheit);
       await accessory.flushCommands();
       expect(client.setState).toHaveBeenLastCalledWith({ temperatureUnit: 'fahrenheit' });
+      await accessory.dispose();
+    });
+
+    test('should offer the setpoints of a heater that takes fewer, and show one it holds outside them at the nearest end', async () => {
+      const machine = { ...hotCool, serialNumber: 'NK6-EU-MHA0094A', type: '635', firmwareCapabilities: [] };
+      const client = createFakeClient(machine, { heatMode: 'heat', targetTemperatureInC: 35 });
+      const config = createDeviceConfig(machine, { ...bare, heatControl: 'thermostat' });
+      const accessory = new DysonAccessory({ config, createClient: factoryOf(client), log, vendorId, commandDelayInMs: 500 });
+      await addAccessory(accessory);
+      await accessory.start();
+      const { thermostat } = accessory;
+      expect(thermostat?.getAttribute(Thermostat, 'minHeatSetpointLimit')).toBe(1100);
+      expect(thermostat?.getAttribute(Thermostat, 'maxHeatSetpointLimit')).toBe(3200);
+      expect(thermostat?.getAttribute(Thermostat, 'occupiedHeatingSetpoint')).toBe(3200);
+      await writeAsController(thermostat, 'Thermostat', 'occupiedHeatingSetpoint', 1150);
+      await accessory.flushCommands();
+      expect(client.setState).toHaveBeenLastCalledWith({ targetTemperatureInC: 12 });
       await accessory.dispose();
     });
   });

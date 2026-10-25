@@ -145,6 +145,7 @@ export function createSensors(overrides: Partial<EnvironmentalCareSensors> = {})
     pm10InUgPerM3: 15,
     pm10Index: 1,
     volatileOrganicCompoundsIndex: 5,
+    dustIndex: null,
     nitrogenDioxideIndex: 1,
     formaldehydeInUgPerM3: null,
     formaldehydeIndex: null,
@@ -264,6 +265,7 @@ export function createFakeClient(machine: DysonMachine = purifierCool, state: Pa
       outerFilterLifeInPercent: null,
       innerFilterType: null,
       outerFilterType: null,
+      securedFilterType: null,
       heatState: null,
       humidificationState: null,
       wickDryingState: null,
@@ -276,7 +278,16 @@ export function createFakeClient(machine: DysonMachine = purifierCool, state: Pa
     getState: vi.fn(async () => ({ ...client.state })),
     // As dyson-control 0.7.0 and a later machine do: nearly every field turns the machine on, as the MyDyson app has it, a
     // setpoint turns the heating on and a target or the auto humidifying the humidifying, and a speed leaves the auto mode.
+    // As dyson-control 0.9.0 does, it rejects a setpoint the heater does not take, and the oscillation of a machine with two
+    // angles or with presets turned on without them.
     setState: vi.fn(async (control: EnvironmentalCareControl) => {
+      const { oscillation, targetTemperatureRange: range } = client.capabilities;
+      const target = control.targetTemperatureInC;
+      if (target !== undefined && (range === null || target < range.minInC || target > range.maxInC)) throw new Error('The machine takes no targetTemperatureInC');
+      const isOnAlone = control.oscillationAngles === undefined && control.oscillationPresetAngleInDegrees === undefined;
+      if ((oscillation === 'advanced' || oscillation === 'barrel') && (control.oscillationMode === 'on' || control.oscillationMode === 'idleOn') && isOnAlone) {
+        throw new Error('The machine takes an oscillationMode of on or idleOn only with oscillationAngles or an oscillationPresetAngleInDegrees');
+      }
       const runs = Object.entries(control).some(([field, value]) => {
         if (field === 'fanPower' || keepsMachineOff.has(field)) return false;
         if (field === 'oscillationMode') return value !== 'off' && value !== 'idleOff';

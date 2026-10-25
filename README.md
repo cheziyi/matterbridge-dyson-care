@@ -50,7 +50,7 @@ Then set up your machines in the plugin's own page: see [Guided setup](#guided-s
 
 Open the plugin frontend from the plugin's row on the Matterbridge home page. The first time, it asks you to sign in:
 
-- **Sign in.** Enter the email address and the country of your Dyson account, the one you use in the MyDyson app. Dyson emails you a code: enter it with your password. The password is used once and not stored.
+- **Sign in.** Enter the email address and the country of your Dyson account, the one you use in the MyDyson app. Dyson emails you a code: enter it with your password. An account that signs in with its password alone gets no code, and is asked for the password only. The password is used once and not stored.
 
 Then it walks through three steps:
 
@@ -263,11 +263,11 @@ A machine that follows people, such as the Purifier Cool of variant N, finds the
 
 On a heater, the heating appears in one of these places. It runs only while the machine is on, so turning it on turns the machine on.
 
-| Option       | In Matter                                                                                                                                                                     |
-| ------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| A thermostat | A thermostat that heats, with a setpoint from 1 to 37 °C in whole degrees, named `<name> Heater` as a device of its own. Off turns the heating off and leaves the fan running |
-| A switch     | A switch named `<name> Heat`. It heats to the setpoint set in the MyDyson app                                                                                                 |
-| Not shown    | The heating stays as the MyDyson app sets it                                                                                                                                  |
+| Option       | In Matter                                                                                                                                                                                                       |
+| ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A thermostat | A thermostat that heats, with a setpoint from 1 to 37 °C in whole degrees, or 11 to 32 °C on a 635 or a 918, named `<name> Heater` as a device of its own. Off turns the heating off and leaves the fan running |
+| A switch     | A switch named `<name> Heat`. It heats to the setpoint set in the MyDyson app                                                                                                                                   |
+| Not shown    | The heating stays as the MyDyson app sets it                                                                                                                                                                    |
 
 The thermostat shows it heating while the heater runs, as the machine says. A machine that does not say so shows it heating while the room is below the setpoint. A setpoint changed in Matter turns the heating on, as it does in the MyDyson app. On a heater that shows a temperature in °C or °F, the thermostat has that unit as its display mode, which a Matter app can set.
 
@@ -340,6 +340,8 @@ Dyson rates the air from good to severe on one index for every pollutant, and Ma
 | 9 to 11     | Very poor      | Poor               | High         |
 | 11 to 13    | Extremely poor | Very poor          | Critical     |
 | 13 and over | Severe         | Extremely poor     | Critical     |
+
+A machine of the first generation, such as the Pure Cool Link, rates its dust and its VOC from 0 to 9 on the same index, so it reaches very poor at 9 and tells no band apart above that. Its dust counts towards the air quality, and has no measurement of its own: Matter has none for dust.
 
 - **No machine says which readings it has**, beyond whether it measures the air, so the plugin goes by what the machine reads. The setup page offers a temperature or a humidity sensor only once the machine has given that reading, so a machine without them, such as the HushJet Purifier Compact, is offered neither. A sensor gets its place in Matter the first time the machine gives its reading: at once for one it gave during setup, and otherwise at the next restart of Matterbridge after the reading comes, which the setup page and Matterbridge ask for.
 - **A reading keeps its place from then on**, so a sensor does not come and go in your Matter app.

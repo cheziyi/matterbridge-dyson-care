@@ -22,6 +22,8 @@
  */
 
 import {
+  type EnvironmentalCareCapabilities,
+  type EnvironmentalCareControl,
   type EnvironmentalCareSensors,
   type EnvironmentalCareState,
   FAN_SPEEDS,
@@ -31,6 +33,7 @@ import {
   type OscillationAngles,
   type OscillationMode,
   type OscillationPresetAngle,
+  type TargetTemperatureRange,
   TILT_ANGLES,
   type TiltAngle,
   WATER_HARDNESSES,
@@ -49,8 +52,14 @@ export const fanSteps: readonly FanSpeed[] = FAN_SPEEDS;
 /** The fan speed turning the auto mode off goes to when the machine was never seen at a speed of its own. */
 export const middleFanSpeed: FanSpeed = 5;
 
-/** The heating setpoints a heater takes, in °C, in whole degrees. */
-export const heatTargetRange = { min: 1, max: 37 } as const;
+/** The heating setpoints a thermostat offers, in °C, in whole degrees: a heater that takes fewer offers its own. */
+export const heatTargetRange: HeatTargetRange = { min: 1, max: 37 };
+
+/** The lowest and the highest heating setpoint of a thermostat, in °C. */
+export interface HeatTargetRange {
+  min: number;
+  max: number;
+}
 
 /** The room temperature a thermostat shows until the machine gives one, in °C: Matter wants one at the start. */
 export const defaultHeatTargetInC = 21;
@@ -212,6 +221,46 @@ export function toOscillationMode(isOn: boolean, state: EnvironmentalCareState |
 }
 
 /**
+ * Work out the angles a machine oscillates through when its oscillation is turned on alone
+ *
+ * dyson-control turns the oscillation of a machine with two angles or with presets on only beside them, so it goes back
+ * to those it was last seen at.
+ *
+ * Edge cases:
+ *  - an oscillation that is on and off alone, or a tilt -> nothing beside the mode
+ *  - angles never seen, or that the machine does not take -> its widest sweep, centred in its range
+ *  - a preset never seen, or `custom` -> its first preset
+ *
+ * @param {EnvironmentalCareState | undefined} state The last state read, or undefined when the machine never answered.
+ * @param {EnvironmentalCareCapabilities} capabilities What the machine takes.
+ * @returns {Pick<EnvironmentalCareControl, 'oscillationAngles' | 'oscillationPresetAngleInDegrees'>} The angles or the preset to send beside the mode.
+ */
+export function getResumedOscillation(
+  state: EnvironmentalCareState | undefined,
+  capabilities: EnvironmentalCareCapabilities,
+): Pick<EnvironmentalCareControl, 'oscillationAngles' | 'oscillationPresetAngleInDegrees'> {
+  if (capabilities.oscillation !== 'advanced' && capabilities.oscillation !== 'barrel') return {};
+  const range = capabilities.oscillationAngles;
+  const widths = capabilities.oscillationAngleWidthsInDegrees;
+  if (range !== null) {
+    const angles = state?.oscillationAngles ?? null;
+    const isTaken =
+      angles !== null &&
+      range.lowerInDegrees <= angles.lowerInDegrees &&
+      angles.upperInDegrees <= range.upperInDegrees &&
+      widths.includes(angles.upperInDegrees - angles.lowerInDegrees);
+    if (isTaken) return { oscillationAngles: angles };
+    const widest = Math.max(...widths);
+    const lower = Math.round((range.lowerInDegrees + range.upperInDegrees - widest) / 2);
+    return { oscillationAngles: { lowerInDegrees: lower, upperInDegrees: lower + widest } };
+  }
+  const presets = capabilities.oscillationPresetAnglesInDegrees.filter((angle): angle is Exclude<OscillationPresetAngle, 'custom'> => angle !== 'custom');
+  const preset = state?.oscillationPresetAngleInDegrees ?? null;
+  if (preset !== null && preset !== 'custom' && presets.includes(preset)) return { oscillationPresetAngleInDegrees: preset };
+  return presets.length === 0 ? {} : { oscillationPresetAngleInDegrees: presets[0] };
+}
+
+/**
  * Tell whether a value of the oscillation select is an angle, rather than off or a breeze
  *
  * @param {OscillationSelectValue} value The value.
@@ -274,18 +323,35 @@ export function getSweep(angles: OscillationAngles | null, offered: readonly Osc
 }
 
 /**
+ * Work out the heating setpoints a thermostat offers for a heater
+ *
+ * Edge cases:
+ *  - a heater that takes 0..37 °C -> 1..37 °C, as for every heater
+ *  - a heater that takes 11..32 °C, as a 635 or a 918 does -> 11..32 °C
+ *  - no range, for a machine without a heater -> 1..37 °C
+ *
+ * @param {TargetTemperatureRange | null} range The setpoints the heater takes, as dyson-control reports them.
+ * @returns {HeatTargetRange} The setpoints, in whole degrees, within 1..37 °C.
+ */
+export function getHeatTargetRange(range: TargetTemperatureRange | null): HeatTargetRange {
+  if (range === null) return heatTargetRange;
+  return { min: Math.max(heatTargetRange.min, Math.ceil(range.minInC)), max: Math.min(heatTargetRange.max, Math.floor(range.maxInC)) };
+}
+
+/**
  * Clamp a heating setpoint to what a heater takes
  *
  * Edge cases:
- *  - not a finite number -> the default of 21 °C
- *  - clamps to 1..37 °C and rounds to the whole degree
+ *  - not a finite number -> the default of 21 °C, clamped as well
+ *  - clamps to the range and rounds to the whole degree
  *
  * @param {number} temperatureInC The requested setpoint in °C.
+ * @param {HeatTargetRange} range The setpoints the heater takes.
  * @returns {number} The setpoint the heater takes, in °C.
  */
-export function clampHeatTarget(temperatureInC: number): number {
-  if (!Number.isFinite(temperatureInC)) return defaultHeatTargetInC;
-  return Math.min(Math.max(Math.round(temperatureInC), heatTargetRange.min), heatTargetRange.max);
+export function clampHeatTarget(temperatureInC: number, range: HeatTargetRange): number {
+  const target = Number.isFinite(temperatureInC) ? Math.round(temperatureInC) : defaultHeatTargetInC;
+  return Math.min(Math.max(target, range.min), range.max);
 }
 
 /**
@@ -363,8 +429,8 @@ export function toMatterHumidity(humidityInPercent: number): number {
   return Math.round(humidityInPercent * 100);
 }
 
-/** The pollutant indices of a machine, which each say how clean the air is on one scale. */
-const pollutantIndices = ['pm25Index', 'pm10Index', 'volatileOrganicCompoundsIndex', 'nitrogenDioxideIndex', 'formaldehydeIndex', 'carbonDioxideIndex'] as const;
+/** The pollutant indices of a machine, which each say how clean the air is on one scale: the dust of a machine of the first generation as well. */
+const pollutantIndices = ['pm25Index', 'pm10Index', 'dustIndex', 'volatileOrganicCompoundsIndex', 'nitrogenDioxideIndex', 'formaldehydeIndex', 'carbonDioxideIndex'] as const;
 
 /**
  * Convert a Dyson index to the Matter air quality

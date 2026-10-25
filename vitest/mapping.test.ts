@@ -14,10 +14,13 @@ import {
   getAirQuality,
   getFanModeSequence,
   getFilterChangeIndication,
+  getHeatTargetRange,
   getNearestHumidityTarget,
+  getResumedOscillation,
   getSweep,
   getSweepAngles,
   getSweeps,
+  heatTargetRange,
   indexToAirQuality,
   indexToLevel,
   isOscillating,
@@ -31,7 +34,7 @@ import {
   toModeOptions,
   toOscillationMode,
 } from '../src/mapping.js';
-import { capabilitiesOf, createEmptySensors, createFakeClient, createSensors, humidifyCool, purifierCool } from './fakeDyson.js';
+import { bigQuiet, capabilitiesOf, createEmptySensors, createFakeClient, createSensors, hotCool, humidifyCool, purifierCool } from './fakeDyson.js';
 
 describe('mapping', () => {
   test('should turn each fan step into a percent that turns back into the same step', () => {
@@ -109,6 +112,23 @@ describe('mapping', () => {
     expect(getFilterChangeIndication(0)).toBe(ResourceMonitoring.ChangeIndication.Critical);
   });
 
+  test('should go back to the angles or the preset a machine was last seen at, when its oscillation is turned on alone', () => {
+    const { state } = createFakeClient(purifierCool);
+    const angles = capabilitiesOf(purifierCool);
+    expect(getResumedOscillation(state, angles)).toEqual({ oscillationAngles: { lowerInDegrees: 135, upperInDegrees: 225 } });
+    // Angles it does not take, or none seen: its widest sweep, centred in its range.
+    expect(getResumedOscillation({ ...state, oscillationAngles: { lowerInDegrees: 100, upperInDegrees: 110 } }, angles)).toEqual({
+      oscillationAngles: { lowerInDegrees: 5, upperInDegrees: 355 },
+    });
+    expect(getResumedOscillation(undefined, angles)).toEqual({ oscillationAngles: { lowerInDegrees: 5, upperInDegrees: 355 } });
+    const presets = capabilitiesOf(hotCool);
+    expect(getResumedOscillation({ ...state, oscillationPresetAngleInDegrees: 90 }, presets)).toEqual({ oscillationPresetAngleInDegrees: 90 });
+    // A preset of custom, or none seen: its first preset.
+    expect(getResumedOscillation(state, presets)).toEqual({ oscillationPresetAngleInDegrees: presets.oscillationPresetAnglesInDegrees[0] });
+    expect(getResumedOscillation(undefined, { ...presets, oscillationPresetAnglesInDegrees: ['custom'] })).toEqual({});
+    expect(getResumedOscillation(state, capabilitiesOf(bigQuiet))).toEqual({});
+  });
+
   test('should offer the widths a machine takes as sweeps, but not one direction', () => {
     expect(isOscillationSweep(90)).toBe(true);
     expect(isOscillationSweep('breeze')).toBe(false);
@@ -133,11 +153,19 @@ describe('mapping', () => {
     expect(getSweep(null, offered)).toBeUndefined();
   });
 
-  test('should clamp a heating setpoint to whole degrees from 1 to 37 °C', () => {
-    expect(clampHeatTarget(21.4)).toBe(21);
-    expect(clampHeatTarget(-5)).toBe(1);
-    expect(clampHeatTarget(50)).toBe(37);
-    expect(clampHeatTarget(Number.NaN)).toBe(21);
+  test('should clamp a heating setpoint to whole degrees within the range of the heater', () => {
+    expect(clampHeatTarget(21.4, heatTargetRange)).toBe(21);
+    expect(clampHeatTarget(-5, heatTargetRange)).toBe(1);
+    expect(clampHeatTarget(50, heatTargetRange)).toBe(37);
+    expect(clampHeatTarget(Number.NaN, heatTargetRange)).toBe(21);
+    expect(clampHeatTarget(5, { min: 11, max: 32 })).toBe(11);
+    expect(clampHeatTarget(Number.NaN, { min: 25, max: 32 })).toBe(25);
+  });
+
+  test('should offer the setpoints of a heater within 1 to 37 °C', () => {
+    expect(getHeatTargetRange({ minInC: 0, maxInC: 37 })).toEqual({ min: 1, max: 37 });
+    expect(getHeatTargetRange({ minInC: 11, maxInC: 32 })).toEqual({ min: 11, max: 32 });
+    expect(getHeatTargetRange(null)).toEqual({ min: 1, max: 37 });
   });
 
   test('should find the nearest target humidity, the higher one at an equal distance', () => {
@@ -168,6 +196,8 @@ describe('mapping', () => {
   test('should take the air quality of the worst pollutant, and unknown without one', () => {
     expect(getAirQuality(createSensors({ nitrogenDioxideIndex: 9.5 }))).toBe(AirQuality.AirQualityEnum.Poor);
     expect(getAirQuality(createEmptySensors())).toBe(AirQuality.AirQualityEnum.Unknown);
+    // The dust of a machine of the first generation, from 0 to 9, is on the same scale.
+    expect(getAirQuality({ ...createEmptySensors(), dustIndex: 9, volatileOrganicCompoundsIndex: 2 })).toBe(AirQuality.AirQualityEnum.Poor);
   });
 
   test('should encode a temperature and a humidity in hundredths', () => {

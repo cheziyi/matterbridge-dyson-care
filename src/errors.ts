@@ -46,8 +46,8 @@ export function getErrorStatus(error: unknown): number | undefined {
   return error instanceof DysonError ? error.httpStatusCode : undefined;
 }
 
-/** A step of the sign in: the request for a login code, or the login with it. */
-export type SignInStep = 'code' | 'login';
+/** A step of the sign in: the request for a login code, the login with it, or the login with the password alone. */
+export type SignInStep = 'code' | 'login' | 'password';
 
 /**
  * Describe a failed step of the sign in in words the setup page can show
@@ -58,7 +58,7 @@ export type SignInStep = 'code' | 'login';
  * Edge cases:
  *  - 429 -> asked again too soon
  *  - 503 or 504 -> the cloud did not answer
- *  - any other 4xx -> the address, or the password and the code, refused
+ *  - any other 4xx -> the address, the password and the code, or the password alone refused
  *  - any other status -> the cloud failed
  *  - an error without a status -> its own message
  *
@@ -74,7 +74,8 @@ export function describeSignInFailure(error: unknown, step: SignInStep): string 
   else if (status === 503 || status === 504) reason = 'The Dyson cloud did not answer: check that Matterbridge reaches the internet, then try again';
   else if (status >= 400 && status < 500 && step === 'code') {
     reason = 'Dyson refused the address: check that it is the email address you sign in to the MyDyson app with. An account that signs in with a mobile number is not supported';
-  } else if (status >= 400 && status < 500) reason = 'Dyson did not accept the password or the code: check both, or ask for a new code';
+  } else if (status >= 400 && status < 500 && step === 'password') reason = 'Dyson did not accept the password: check it';
+  else if (status >= 400 && status < 500) reason = 'Dyson did not accept the password or the code: check both, or ask for a new code';
   return `${reason} (HTTP ${status})`;
 }
 

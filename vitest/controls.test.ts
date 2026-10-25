@@ -149,5 +149,7 @@ describe('controls', () => {
     });
     expect(addReportedSensors(known, createEmptySensors())).toBe(known);
     expect(addReportedSensors(known, createSensors({ carbonDioxideInPpm: 600 }))).toEqual({ ...known, carbonDioxide: true });
+    // The dust of a machine of the first generation gives the air quality alone.
+    expect(addReportedSensors(noReportedSensors, { ...createEmptySensors(), dustIndex: 3 })).toEqual({ ...noReportedSensors, airQuality: true });
   });
 });

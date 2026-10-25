@@ -288,7 +288,7 @@ try {
   await page.goto(page$);
   await page.getByLabel('Email address').fill('someone@example.com');
   await page.getByLabel('Country of the account').selectOption('GB');
-  await click('Email me a code');
+  await click('Continue');
   await page.getByLabel('Code from the email').fill('482913');
   await page.getByLabel('Password of the account').fill('correct horse battery');
   await page.evaluate(() => document.activeElement?.blur());

@@ -42,12 +42,12 @@ export interface Draft extends Exposure {
 
 export type ScreenName = 'loading' | 'home' | 'signIn' | 'find' | 'connect' | 'options' | 'done';
 
-/** The sign in, which takes two steps: the address and the country, then the emailed code and the password. */
+/** The sign in, which takes two steps: the address and the country, then the emailed code and the password, or the password alone. */
 export interface SignIn {
   email: string;
   country: string;
-  /** What the request for a code answered, once the code is on its way. */
-  challengeId?: string;
+  /** What the request for a code answered, once the code is on its way, or null for an account that signs in with its password alone. */
+  challengeId?: string | null;
 }
 
 export const view = {

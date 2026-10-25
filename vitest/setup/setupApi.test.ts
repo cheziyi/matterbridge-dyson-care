@@ -17,7 +17,7 @@ const signIn = { email: 'someone@example.com', country: 'gb', password: 'secret'
 const platform = {
   getSetupState: vi.fn(async () => state),
   getCountries: vi.fn(async () => ['GB', 'US']),
-  requestLoginCode: vi.fn(async () => 'challenge-1'),
+  requestLoginCode: vi.fn(async (): Promise<string | null> => 'challenge-1'),
   signIn: vi.fn(async () => {}),
   signOut: vi.fn(async () => {}),
   listMachines: vi.fn(async () => [{ ...purifierCool, isConfigured: false, hasDuplicateName: false, support: 'supported' as const }]),
@@ -97,9 +97,20 @@ describe('setupApi', () => {
     expect(platform.requestLoginCode).toHaveBeenCalledTimes(1);
   });
 
+  test('should answer no challenge for an account that signs in with its password alone', async () => {
+    platform.requestLoginCode.mockResolvedValueOnce(null);
+    expect(await handleSetupRequest(platform, 'POST', 'login-code', {}, { email: 'someone@example.com', country: 'GB' })).toEqual({ ok: true, challengeId: null });
+  });
+
   test('should sign in with the code and the password', async () => {
     expect(await handleSetupRequest(platform, 'POST', 'login', {}, signIn)).toEqual({ ok: true, state });
     expect(platform.signIn).toHaveBeenCalledWith({ email: 'someone@example.com', country: 'GB', password: 'secret', challengeId: 'challenge-1', otpCode: '123456' });
+  });
+
+  test('should sign in with the password alone when there is no code', async () => {
+    const { challengeId: _challengeId, otpCode: _otpCode, ...passwordAlone } = signIn;
+    expect(await handleSetupRequest(platform, 'POST', 'login', {}, passwordAlone)).toEqual({ ok: true, state });
+    expect(platform.signIn).toHaveBeenCalledWith({ email: 'someone@example.com', country: 'GB', password: 'secret' });
   });
 
   test('should say what a sign in lacks', async () => {
