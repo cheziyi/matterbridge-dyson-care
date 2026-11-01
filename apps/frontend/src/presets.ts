@@ -43,9 +43,14 @@ export const presets: Record<PresetName, { title: string; text: string }> = {
 };
 
 /**
- * The choices a preset makes for a machine: never a switch or a control the machine has no use for. The Apple Home and
- * the Google Home presets make the switches and the sensors devices of their own, and the Full Matter support preset
- * makes them parts of the main device.
+ * Make the choices a preset makes for a machine: never a switch or a control the machine has no use for
+ *
+ * The Apple Home and the Google Home presets make the switches and the sensors devices of their own, and the Full
+ * Matter support preset makes them parts of the main device.
+ *
+ * @param {PresetName} name The preset.
+ * @param {AvailableControls} controls What the machine can have.
+ * @returns {Exposure} The choices.
  */
 export function presetExposure(name: PresetName, controls: AvailableControls): Exposure {
   const isMatter = name === 'matter';
@@ -89,7 +94,14 @@ export function presetExposure(name: PresetName, controls: AvailableControls): E
   );
 }
 
-/** Whether the choices in a draft are exactly those of a preset, leaving aside what the machine has no use for. */
+/**
+ * Tell whether the choices in a draft are exactly those of a preset, leaving aside what the machine has no use for
+ *
+ * @param {Draft} draft The machine, with its choices.
+ * @param {PresetName} name The preset.
+ * @param {AvailableControls} controls What the machine can have.
+ * @returns {boolean} True when the choices are those of the preset.
+ */
 export function matchesPreset(draft: Draft, name: PresetName, controls: AvailableControls): boolean {
   return JSON.stringify(fitExposure(draft, controls)) === JSON.stringify(presetExposure(name, controls));
 }

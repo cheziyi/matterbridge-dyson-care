@@ -24,10 +24,24 @@
 import { type Child, h } from './dom.js';
 import { currentDraft, type Draft, draftLabel, type ScreenName, view } from './state.js';
 
+/**
+ * Create a button, disabled while the page is busy
+ *
+ * @param {string} label What the button says.
+ * @param {() => void} onclick What a click does.
+ * @param {'primary' | 'quiet' | 'danger'} [kind] How the button looks: the main action, a quiet one, or a destructive one.
+ * @param {boolean} [disabled] Whether the button is disabled anyway.
+ * @returns {HTMLButtonElement} The button.
+ */
 export function button(label: string, onclick: () => void, kind: 'primary' | 'quiet' | 'danger' = 'quiet', disabled = false): HTMLButtonElement {
   return h('button', { type: 'button', class: `button ${kind}`, onclick, disabled: disabled || view.isBusy }, label);
 }
 
+/**
+ * Draw what the page has to say: that it is working, the problem, or the note, whichever comes first
+ *
+ * @returns {Child} The notice, or nothing when the page has nothing to say.
+ */
 export function notice(): Child {
   if (view.isBusy) return h('p', { class: 'notice working', role: 'status' }, h('span', { class: 'spinner' }), view.busyText);
   if (view.error !== '') return h('p', { class: 'notice problem', role: 'alert' }, view.error);
@@ -36,8 +50,10 @@ export function notice(): Child {
 }
 
 /**
- * The machines of this run, with the one the page is on marked: shown when a run sets up more than one, so that it is
- * plain which machine the Connect and Options steps are about.
+ * Draw the machines of this run, with the one the page is on marked: shown when a run sets up more than one, so that it
+ * is plain which machine the Connect and Options steps are about
+ *
+ * @returns {Child} The strip, or nothing for a run of one machine.
  */
 export function unitStrip(): Child {
   const current = currentDraft();
@@ -60,11 +76,22 @@ export function unitStrip(): Child {
   );
 }
 
-/** The heading of a step that is about one machine: the machine first, then what the step does with it. */
+/**
+ * Draw the heading of a step that is about one machine: the machine first, then what the step does with it
+ *
+ * @param {Draft} draft The machine.
+ * @param {string} text What the step does with it.
+ * @returns {HTMLElement} The heading.
+ */
 export function unitHeader(draft: Draft, text: string): HTMLElement {
   return h('header', { class: 'unit-header' }, h('h1', {}, draftLabel(draft)), h('p', { class: 'meta' }, text));
 }
 
+/**
+ * Draw the steps of the setup of a new machine, with the one the page is on marked
+ *
+ * @returns {Child} The steps, or nothing while the run is about stored machines alone.
+ */
 export function steps(): Child {
   if (view.queue.length > 0 && !view.queue.some((draft) => draft.isNew)) return null;
   const names = ['Find', 'Connect', 'Options'];

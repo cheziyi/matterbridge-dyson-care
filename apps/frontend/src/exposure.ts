@@ -37,7 +37,12 @@ export const settingControlKeys: readonly SettingControlKey[] = [
   'hasWaterHardnessSelect',
 ];
 
-/** Copy the choices of how a device appears in Matter, and nothing else. */
+/**
+ * Copy the choices of how a device appears in Matter, and nothing else
+ *
+ * @param {Exposure} source What to copy them from, such as a draft or a stored device.
+ * @returns {Exposure} The choices.
+ */
 export function pickExposure(source: Exposure): Exposure {
   const {
     deviceType,
@@ -93,7 +98,11 @@ export function pickExposure(source: Exposure): Exposure {
 
 /**
  * Drop the choices a machine has no use for, as `fitToCapabilities` in the plugin does: the controls of what it lacks
- * are not shown, and an oscillation select or fan without angles to pick from is a switch.
+ * are not shown, and an oscillation select or fan without angles to pick from is a switch
+ *
+ * @param {Exposure} exposure The choices.
+ * @param {AvailableControls} controls What the machine can have.
+ * @returns {Exposure} The choices the machine has a use for.
  */
 export function fitExposure(exposure: Exposure, controls: AvailableControls): Exposure {
   const fitted = pickExposure(exposure);
@@ -142,7 +151,13 @@ const defaultExposure: Exposure = {
 /** The longest name Matter takes. */
 const maxNameLength = 32;
 
-/** A name no device has yet: the room name, or that name with a number after it, such as "Bedroom 2". */
+/**
+ * Pick a name no device has yet: the room name, or that name with a number after it, such as "Bedroom 2"
+ *
+ * @param {string} base The room name, or an empty text for a machine without one.
+ * @param {ReadonlySet<string>} taken The names in use.
+ * @returns {string} The name, of at most 32 characters.
+ */
 function uniqueName(base: string, taken: ReadonlySet<string>): string {
   if (base === '' || !taken.has(base)) return base;
   for (let count = 2; ; count++) {
@@ -153,8 +168,12 @@ function uniqueName(base: string, taken: ReadonlySet<string>): string {
 }
 
 /**
- * The drafts of machines picked in the Find step, each named after its room in the MyDyson app. Machines in one room
- * share its name, so each draft gets one no stored device and no draft before it has.
+ * Make the drafts of the machines picked in the Find step, each named after its room in the MyDyson app
+ *
+ * Machines in one room share its name, so each draft gets one no stored device and no draft before it has.
+ *
+ * @param {readonly Machine[]} machines The machines picked.
+ * @returns {Draft[]} The drafts, in the order of the machines.
  */
 export function draftsFromMachines(machines: readonly Machine[]): Draft[] {
   const taken = new Set((view.setup?.devices ?? []).map((device) => device.name));
@@ -165,6 +184,12 @@ export function draftsFromMachines(machines: readonly Machine[]): Draft[] {
   });
 }
 
+/**
+ * Make the draft of a stored device, to change its options or to reconnect it
+ *
+ * @param {StoredDevice} device The stored device, as the plugin sent it.
+ * @returns {Draft} The draft, with the choices and the connection of the device.
+ */
 export function draftFromStored(device: StoredDevice): Draft {
   const {
     capabilities,

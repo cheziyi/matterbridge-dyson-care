@@ -80,7 +80,14 @@ function toggle(id: string, isOn: boolean, title: string, text: string, onpick: 
   return h('label', { class: 'choice', for: id }, input, h('span', {}, h('strong', {}, title), h('span', { class: 'meta' }, text)));
 }
 
-/** A section of radio choices, with a heading and a line of help. */
+/**
+ * Draw a section of radio choices, with a heading and a line of help
+ *
+ * @param {string} title The heading.
+ * @param {string} help The line of help, or an empty text for none.
+ * @param {...Child} choices The choices.
+ * @returns {HTMLElement} The section.
+ */
 function radioSection(title: string, help: string, ...choices: Child[]): HTMLElement {
   const id = `${title.toLowerCase().replaceAll(' ', '-')}-title`;
   return h(
@@ -643,6 +650,11 @@ function composedSection(draft: Draft): HTMLElement {
   );
 }
 
+/**
+ * Draw the Options step: the name, the connection and how the machine the run is on appears in Matter
+ *
+ * @returns {Child[]} The screen.
+ */
 export function optionsScreen(): Child[] {
   const draft = currentDraft();
   if (draft === undefined) return [notice()];

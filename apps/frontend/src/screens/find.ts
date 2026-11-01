@@ -74,6 +74,11 @@ function machineRow(machine: ListedMachine): HTMLElement {
   );
 }
 
+/**
+ * Draw the Find step: the machines of the account, with the ones to set up picked
+ *
+ * @returns {Child[]} The screen.
+ */
 export function findScreen(): Child[] {
   const chosen = view.machines.filter((machine) => view.selected.has(machine.serialNumber) && isSelectable(machine));
   const continueLabel = chosen.length === 1 ? 'Set up 1 machine' : `Set up ${chosen.length} machines`;

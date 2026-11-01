@@ -223,6 +223,11 @@ function accountPanel(): Child {
   );
 }
 
+/**
+ * Draw the home screen: the account, and the stored machines each with how it is doing
+ *
+ * @returns {Child[]} The screen.
+ */
 export function homeScreen(): Child[] {
   const devices = view.setup?.devices ?? [];
   const canAdd = view.setup?.account !== undefined && !view.setup.account.needsSignIn;
