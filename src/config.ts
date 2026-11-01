@@ -190,7 +190,7 @@ export interface DysonDeviceConfig extends DysonDeviceExposure {
   variant?: string;
   mqttRootTopicLevel?: string;
   model?: string;
-  /** The name the machine is sold under, as the cloud reported it when the device was added. Matterbridge makes the identity of the device in Matter from it, so the machine list does not update it. */
+  /** The name the machine is sold under, as the machine list of the account reports it now. Matter shows it as the product name of the device, whose identity is made without it. */
   productName?: string;
   firmwareVersion?: string;
   firmwareCapabilities?: string[];
