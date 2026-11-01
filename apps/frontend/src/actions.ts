@@ -87,14 +87,35 @@ async function syncState(): Promise<void> {
 const connectingRefreshInMs = 2000;
 let connectingRefresh: number | undefined;
 
-/** Take the state the plugin sent, and read it again in a moment while a machine connects, so that its status settles without a reload. */
+/**
+ * Take the state the plugin sent, and read it again in a moment while a machine connects, so that its status settles without a reload
+ *
+ * @param {SetupState} state The state.
+ * @returns {void}
+ */
 function setSetup(state: SetupState): void {
   view.setup = state;
   if (connectingRefresh !== undefined || !state.devices.some((device) => device.status === 'connecting')) return;
   connectingRefresh = window.setTimeout(() => {
     connectingRefresh = undefined;
-    void refreshState().then(render);
+    void followConnecting();
   }, connectingRefreshInMs);
+}
+
+/**
+ * Read the state again while a machine connects, and redraw the home screen when it changed
+ *
+ * The home screen alone shows the machines. Another screen is left as it is, and a state that did not change redraws
+ * nothing: a redraw for nothing could land between a press and its click, and lose the click.
+ *
+ * @returns {Promise<void>} Resolves when the state is read.
+ */
+async function followConnecting(): Promise<void> {
+  const reply = await api('GET state');
+  if (!reply.ok) return;
+  const hasChanged = JSON.stringify(reply.state) !== JSON.stringify(view.setup);
+  setSetup(reply.state);
+  if (hasChanged && view.screen === 'home') render();
 }
 
 async function refreshState(): Promise<void> {

@@ -12,6 +12,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Fixed
 
+- [setup]: Redraw the home screen alone, and only when the state changed, while a machine connects: a redraw of another screen for nothing could land between a press and its click, and lose the click.
 - [setup]: Sign out and remove a machine through a POST, so that the page shows a sign out or a removal that failed: Matterbridge answers a DELETE with 204 and no body, whatever the plugin returns, which showed every one as a success.
 
 ## [0.6.0] - 2026-10-25
