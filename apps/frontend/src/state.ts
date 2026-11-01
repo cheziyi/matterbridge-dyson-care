@@ -50,6 +50,7 @@ export interface SignIn {
   challengeId?: string | null;
 }
 
+/** What the page knows at any moment: the screen it is on, the state the plugin sent, and what the user is doing. */
 export const view = {
   screen: 'loading' as ScreenName,
   setup: undefined as SetupState | undefined,
@@ -70,21 +71,41 @@ export const view = {
   confirmingSignOut: false,
 };
 
+/**
+ * Get the machine the run is on
+ *
+ * @returns {Draft | undefined} The machine, or undefined when no run is going on.
+ */
 export function currentDraft(): Draft | undefined {
   return view.queue[0];
 }
 
-/** What a machine is called on the page: its name, or its serial number until it has one. */
+/**
+ * Get what a machine is called on the page: its name, or its serial number until it has one
+ *
+ * @param {Draft} draft The machine.
+ * @returns {string} The name, or the serial number.
+ */
 export function draftLabel(draft: Draft): string {
   return draft.name === '' ? draft.machine.serialNumber : draft.name;
 }
 
-/** What a machine is sold as, such as Purifier Cool, or its type when the cloud does not say. */
+/**
+ * Get what a machine is sold as, such as Purifier Cool, or its type when the cloud does not say
+ *
+ * @param {Machine} machine The machine.
+ * @returns {string} The product name, or the type.
+ */
 export function productLabel(machine: Machine): string {
   return machine.productName ?? `Dyson machine of type ${machine.type}`;
 }
 
-/** A machine as the MyDyson app knows it, to tell it apart: what it is sold as, its serial number, and its room name. */
+/**
+ * Describe a machine as the MyDyson app knows it, to tell it apart: what it is sold as, its serial number, and its room name
+ *
+ * @param {Machine} machine The machine.
+ * @returns {string} The description.
+ */
 export function machineLabel(machine: Machine): string {
   const label = `${productLabel(machine)} ${machine.serialNumber}`;
   return machine.name === undefined ? label : `${label}, named "${machine.name}" in the MyDyson app`;

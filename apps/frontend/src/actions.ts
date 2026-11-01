@@ -3,7 +3,7 @@
  * @description What the setup page does: each action calls the plugin, changes the state of the page and redraws it.
  * @author Calvin Che
  * @created 2026-10-19
- * @version 1.1.0
+ * @version 1.2.0
  * @license Apache-2.0
  *
  * Copyright 2026 Calvin Che.
@@ -28,11 +28,11 @@ import { render } from './render.js';
 import { currentDraft, type Draft, draftLabel, view } from './state.js';
 
 /**
- * Run a call while the page shows that it is working.
+ * Run a call while the page shows that it is working
  *
- * @param text What the page says meanwhile.
- * @param task The call.
- * @returns What the call returned.
+ * @param {string} text What the page says meanwhile.
+ * @param {() => Promise<T>} task The call.
+ * @returns {Promise<T>} What the call returned.
  */
 async function busy<T>(text: string, task: () => Promise<T>): Promise<T> {
   view.isBusy = true;
@@ -48,6 +48,11 @@ async function busy<T>(text: string, task: () => Promise<T>): Promise<T> {
   }
 }
 
+/**
+ * Load the page: read the state, and go to the screen it calls for
+ *
+ * @returns {Promise<void>} Resolves when the first screen is drawn.
+ */
 export async function loadState(): Promise<void> {
   const reply = await api('GET state');
   if (!reply.ok) {
@@ -73,8 +78,12 @@ export async function loadState(): Promise<void> {
 
 /**
  * Read the machine list of the account again behind the page as it opens, so that what changed in the MyDyson app since
- * the last read, such as a room name, shows without waiting for the next one. The page is redrawn only when the state
- * changed: a redraw for nothing could land between a press and its click, and lose the click.
+ * the last read, such as a room name, shows without waiting for the next one
+ *
+ * The page is redrawn only when the state changed: a redraw for nothing could land between a press and its click, and
+ * lose the click.
+ *
+ * @returns {Promise<void>} Resolves when the list is read.
  */
 async function syncState(): Promise<void> {
   const reply = await api('POST sync');
@@ -87,21 +96,52 @@ async function syncState(): Promise<void> {
 const connectingRefreshInMs = 2000;
 let connectingRefresh: number | undefined;
 
-/** Take the state the plugin sent, and read it again in a moment while a machine connects, so that its status settles without a reload. */
+/**
+ * Take the state the plugin sent, and read it again in a moment while a machine connects, so that its status settles without a reload
+ *
+ * @param {SetupState} state The state.
+ * @returns {void}
+ */
 function setSetup(state: SetupState): void {
   view.setup = state;
   if (connectingRefresh !== undefined || !state.devices.some((device) => device.status === 'connecting')) return;
   connectingRefresh = window.setTimeout(() => {
     connectingRefresh = undefined;
-    void refreshState().then(render);
+    void followConnecting();
   }, connectingRefreshInMs);
 }
 
+/**
+ * Read the state again while a machine connects, and redraw the home screen when it changed
+ *
+ * The home screen alone shows the machines. Another screen is left as it is, and a state that did not change redraws
+ * nothing: a redraw for nothing could land between a press and its click, and lose the click.
+ *
+ * @returns {Promise<void>} Resolves when the state is read.
+ */
+async function followConnecting(): Promise<void> {
+  const reply = await api('GET state');
+  if (!reply.ok) return;
+  const hasChanged = JSON.stringify(reply.state) !== JSON.stringify(view.setup);
+  setSetup(reply.state);
+  if (hasChanged && view.screen === 'home') render();
+}
+
+/**
+ * Read the state again, without redrawing
+ *
+ * @returns {Promise<void>} Resolves when the state is read.
+ */
 async function refreshState(): Promise<void> {
   const reply = await api('GET state');
   if (reply.ok) setSetup(reply.state);
 }
 
+/**
+ * Go to the home screen, leaving a run of the setup, and read the state again behind it
+ *
+ * @returns {void}
+ */
 export function goHome(): void {
   view.queue = [];
   view.saved = [];
@@ -113,6 +153,11 @@ export function goHome(): void {
   render();
 }
 
+/**
+ * Go to the sign in, with the address and the country of the account signed in filled in
+ *
+ * @returns {Promise<void>} Resolves when the countries are listed, or the list is given up.
+ */
 export async function startSignIn(): Promise<void> {
   const account = view.setup?.account;
   view.signIn = { email: account?.email ?? '', country: account?.country ?? '' };
@@ -127,6 +172,13 @@ export async function startSignIn(): Promise<void> {
   render();
 }
 
+/**
+ * Ask Dyson how an account signs in: with a code it emails, or with its password alone
+ *
+ * @param {string} email The email address of the account.
+ * @param {string} country The country of the account, as two capital letters.
+ * @returns {Promise<void>} Resolves when the page shows the next step, or the refusal.
+ */
 export async function requestCode(email: string, country: string): Promise<void> {
   view.signIn = { email, country };
   const reply = await busy(`Asking Dyson how ${email} signs in…`, async () => api('POST login-code', { email, country }));
@@ -139,6 +191,13 @@ export async function requestCode(email: string, country: string): Promise<void>
   render();
 }
 
+/**
+ * Sign in to the Dyson account, and go on to its machines
+ *
+ * @param {string} password The password of the account.
+ * @param {string} [otpCode] The code Dyson emailed, for an account that signs in with one.
+ * @returns {Promise<void>} Resolves when the page went on, or shows the refusal.
+ */
 export async function signIn(password: string, otpCode?: string): Promise<void> {
   const { email, country, challengeId } = view.signIn;
   // An account that signs in with its password alone sends no code.
@@ -156,14 +215,24 @@ export async function signIn(password: string, otpCode?: string): Promise<void> 
   else goHome();
 }
 
+/**
+ * Sign out of the account: the machines stay in Matter, unreachable until the next sign in
+ *
+ * @returns {Promise<void>} Resolves when the page shows the outcome.
+ */
 export async function signOut(): Promise<void> {
-  const reply = await busy('Signing out…', async () => api('DELETE account'));
+  const reply = await busy('Signing out…', async () => api('POST sign-out'));
   view.confirmingSignOut = false;
   if (!reply.ok) view.error = reply.error;
   await refreshState();
   render();
 }
 
+/**
+ * Go to the Find step, and list the machines of the account, with the ones the plugin can add picked
+ *
+ * @returns {Promise<void>} Resolves when the machines are shown, or the failure.
+ */
 export async function search(): Promise<void> {
   view.screen = 'find';
   const reply = await busy('Reading the machines of your Dyson account…', async () => api('POST machines'));
@@ -180,6 +249,12 @@ export async function search(): Promise<void> {
   render();
 }
 
+/**
+ * Start a run of the setup through the Connect and Options steps, one machine after the other
+ *
+ * @param {Draft[]} drafts The machines to set up, in order.
+ * @returns {void}
+ */
 export function startQueue(drafts: Draft[]): void {
   view.queue = drafts;
   view.saved = [];
@@ -187,6 +262,11 @@ export function startQueue(drafts: Draft[]): void {
   void enterConnect();
 }
 
+/**
+ * Go to the Connect step of the next machine of the run, or to the end of the run
+ *
+ * @returns {Promise<void>} Resolves when the machine is checked, or the end is shown.
+ */
 async function enterConnect(): Promise<void> {
   const draft = currentDraft();
   if (draft === undefined) {
@@ -203,6 +283,12 @@ async function enterConnect(): Promise<void> {
   await check(draft);
 }
 
+/**
+ * Check a machine through the plugin, and go to its options once it answers
+ *
+ * @param {Draft} draft The machine.
+ * @returns {Promise<void>} Resolves when the page shows the outcome.
+ */
 export async function check(draft: Draft): Promise<void> {
   const reply = await busy(`Connecting to ${draftLabel(draft)} through the Dyson cloud, and looking for it on your network…`, async () =>
     api('POST probe', { machine: draft.machine }),
@@ -228,12 +314,23 @@ export async function check(draft: Draft): Promise<void> {
   render();
 }
 
+/**
+ * Leave the machine the run is on out, and go on to the next
+ *
+ * @returns {void}
+ */
 export function skipDraft(): void {
   const skipped = view.queue.shift();
   if (skipped !== undefined) view.handled.push({ label: draftLabel(skipped), isSaved: false });
   void enterConnect();
 }
 
+/**
+ * Store a machine with the options chosen, and go on to the next
+ *
+ * @param {Draft} draft The machine, with its options.
+ * @returns {Promise<void>} Resolves when the machine is stored and the page went on, or shows what is wrong.
+ */
 export async function saveDraft(draft: Draft): Promise<void> {
   const name = draft.name.trim();
   const problem = checkName(draft, name);
@@ -259,7 +356,13 @@ export async function saveDraft(draft: Draft): Promise<void> {
   await enterConnect();
 }
 
-/** What is wrong with the name of a draft, or nothing: the plugin refuses a name another device has. */
+/**
+ * Tell what is wrong with the name of a draft: the plugin refuses a name another device has
+ *
+ * @param {Draft} draft The machine.
+ * @param {string} name Its name, trimmed.
+ * @returns {string} What is wrong, or an empty text.
+ */
 function checkName(draft: Draft, name: string): string {
   if (name === '') return 'Give the machine a name: it is the name it gets in Matter.';
   const isTaken = (view.setup?.devices ?? []).some((device) => device.name === name && device.serialNumber !== draft.machine.serialNumber);
@@ -272,8 +375,14 @@ export const reloadNote = "Matterbridge's own list of devices shows the change o
 /** A change of how a machine appears in Matter waits for a restart, which the plugin asks Matterbridge for as well. */
 export const restartNote = 'Restart Matterbridge to apply the new options in Matter: until then the machine keeps its current controls.';
 
+/**
+ * Remove a stored device from the plugin and from Matter
+ *
+ * @param {StoredDevice} device The device.
+ * @returns {Promise<void>} Resolves when the page shows the outcome.
+ */
 export async function removeDevice(device: StoredDevice): Promise<void> {
-  const reply = await busy(`Removing ${device.name}…`, async () => api('DELETE device', undefined, `serialNumber=${encodeURIComponent(device.serialNumber)}`));
+  const reply = await busy(`Removing ${device.name}…`, async () => api('POST remove-device', { serialNumber: device.serialNumber }));
   view.confirmingRemoval = '';
   if (reply.ok) view.info = `${device.name} is removed. ${reloadNote}`;
   else view.error = reply.error;

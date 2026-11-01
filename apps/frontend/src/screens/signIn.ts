@@ -40,7 +40,12 @@ function countryField(): HTMLElement {
   return h('div', { class: 'field' }, h('label', { for: 'country' }, 'Country of the account'), h('p', { class: 'help' }, chinaNote), field);
 }
 
-/** The name of a country in the language of the browser, such as United Kingdom for GB, or its code when there is none. */
+/**
+ * Get the name of a country in the language of the browser, such as United Kingdom for GB, or its code when there is none
+ *
+ * @param {string} code The country, as two capital letters.
+ * @returns {string} The name, or the code.
+ */
 function countryName(code: string): string {
   try {
     return new Intl.DisplayNames(undefined, { type: 'region' }).of(code) ?? code;
@@ -129,6 +134,11 @@ function passwordForm(): Child[] {
   ];
 }
 
+/**
+ * Draw the sign in: the address and the country, then the emailed code and the password, or the password alone
+ *
+ * @returns {Child[]} The screen.
+ */
 export function signInScreen(): Child[] {
   const isAgain = view.setup?.account !== undefined;
   return [

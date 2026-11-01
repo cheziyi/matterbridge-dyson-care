@@ -4,6 +4,17 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- [devices]: **Breaking:** every device changes its identity in Matter once more at the first start, and the Matter apps take it for a new device: put it back in its room once. The identity is now made without the product name, so a cloud that names a machine later, or names it differently, changes nothing in Matter. The machine list of the account updates the product name again, without reconnecting the machine, and the setup page shows the name the cloud gives the machine now.
+
+### Fixed
+
+- [setup]: Redraw the home screen alone, and only when the state changed, while a machine connects: a redraw of another screen for nothing could land between a press and its click, and lose the click.
+- [setup]: Sign out and remove a machine through a POST, so that the page shows a sign out or a removal that failed: Matterbridge answers a DELETE with 204 and no body, whatever the plugin returns, which showed every one as a success.
+
 ## [0.6.0] - 2026-10-25
 
 ### Added

@@ -166,6 +166,8 @@ describe('config', () => {
   test('should tell the same machine and the same exposure apart', () => {
     const device = createDeviceConfig(purifierCool);
     expect(hasSameMachine(device, { ...device, name: 'Elsewhere' })).toBe(true);
+    // The product name is a label Matter shows, which no connection depends on.
+    expect(hasSameMachine(device, { ...device, productName: 'Purifier Cool Formaldehyde' })).toBe(true);
     expect(hasSameMachine(device, { ...device, firmwareCapabilities: [] })).toBe(false);
     expect(hasSameMachine({ ...device, firmwareCapabilities: undefined }, { ...device, firmwareCapabilities: [] })).toBe(true);
     expect(hasSameMachine({ ...device, firmwareCapabilities: [] }, { ...device, firmwareCapabilities: undefined })).toBe(true);

@@ -545,6 +545,18 @@ describe('DysonAccessory', () => {
       accessory = new DysonAccessory({ config, createClient: factoryOf(client), reportedSensors, log, vendorId, commandDelayInMs: 50 });
       await addAccessory(accessory);
       expect(accessory.endpoint.getAttribute(BridgedDeviceBasicInformation, 'productName')).toBe('Dyson 438');
+      // The product name is shown, cut to 32 characters, and kept out of the unique id, which a cloud that names the machine later must not change.
+      const renamed = new DysonAccessory({
+        config: { ...config, productName: 'Purifier Cool Formaldehyde, as the cloud names it' },
+        createClient: factoryOf(createFakeClient(machine)),
+        reportedSensors,
+        log,
+        vendorId,
+      });
+      expect(renamed.endpoint.uniqueId).toBe(accessory.endpoint.uniqueId);
+      expect(renamed.endpoint.productName).toBe('Purifier Cool Formaldehyde, as t');
+      expect(renamed.endpoint.getClusterServerOptions(BridgedDeviceBasicInformation)?.productName).toBe('Purifier Cool Formaldehyde, as t');
+      await renamed.dispose();
       expect(accessory.endpoint.getAttribute(FanControl, 'speedMax')).toBe(11);
       expect(accessory.takeNewlyReportedSensors()).toBeUndefined();
       expect(await accessory.start()).toBe(true);

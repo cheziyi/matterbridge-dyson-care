@@ -26,7 +26,12 @@ import { button, notice, steps, unitHeader, unitStrip } from '../components.js';
 import { type Child, h } from '../dom.js';
 import { currentDraft, type Draft, machineLabel, view } from '../state.js';
 
-/** What stands in the way of the machine, or what the page needs before it can go on: nothing while the check has no answer. */
+/**
+ * Draw what stands in the way of the machine, or what the page needs before it can go on
+ *
+ * @param {Draft} draft The machine, with the answer of its check.
+ * @returns {Child} The panel, or nothing while the check has no answer or the machine is ready.
+ */
 function statusPanel(draft: Draft): Child {
   const status = draft.probe?.status;
   const label = draft.name === '' ? 'The machine' : draft.name;
@@ -46,6 +51,11 @@ function statusPanel(draft: Draft): Child {
   return null;
 }
 
+/**
+ * Draw the Connect step: the check of the machine the run is on, and what to do when it fails
+ *
+ * @returns {Child[]} The screen.
+ */
 export function connectScreen(): Child[] {
   const draft = currentDraft();
   if (draft === undefined) return [notice()];

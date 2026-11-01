@@ -214,12 +214,12 @@ export class DysonPlatform extends MatterbridgeDynamicPlatform implements SetupP
    *
    * @param {string} method The HTTP method.
    * @param {string} [path] The path after `api/`.
-   * @param {Record<string, unknown>} [query] The query string parameters.
+   * @param {Record<string, unknown>} [_query] The query string parameters, which no request of the page carries.
    * @param {unknown} [body] The parsed JSON body.
    * @returns {Promise<unknown>} The JSON reply, or undefined for a path the plugin does not serve.
    */
-  override async onFetch(method: string, path?: string, query?: Record<string, unknown>, body?: unknown): Promise<unknown> {
-    return handleSetupRequest(this, method, path, query, body);
+  override async onFetch(method: string, path?: string, _query?: Record<string, unknown>, body?: unknown): Promise<unknown> {
+    return handleSetupRequest(this, method, path, body);
   }
 
   /**

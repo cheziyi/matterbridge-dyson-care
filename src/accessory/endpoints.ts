@@ -3,7 +3,7 @@
  * @description This file contains the builders of the Matter endpoints of one machine.
  * @author Calvin Che
  * @created 2026-10-19
- * @version 1.1.0
+ * @version 1.2.0
  * @license Apache-2.0
  *
  * Copyright 2026 Calvin Che.
@@ -57,7 +57,7 @@ export interface EndpointIdentity {
   label: string;
   /** The serial number of the machine, which neither a new name nor a new firmware changes. */
   serial: string;
-  /** The name the machine is sold under, such as `Purifier Cool`, as it was when the device was added: Matterbridge makes the unique id of the device from it, with the name, the serial number and the vendor name. */
+  /** The name the machine is sold under, such as `Purifier Cool`, as the cloud reports it now: shown as the product name, and kept out of the unique id, which the cloud must not change. */
   productName: string;
   /** The vendor id of the bridge, used for the bridged device information. */
   vendorId: number;
@@ -67,6 +67,9 @@ export interface EndpointIdentity {
 
 /** What each endpoint beside the main one is, such as `Night Mode`, for the endpoints that are devices of their own in Matter. */
 const labels = new WeakMap<MatterbridgeEndpoint, string>();
+
+/** The product name every endpoint is made with, which the unique id is made from: see `createBasicInformation`. */
+const stableProductName = `${vendorName} device`;
 
 /**
  * Get the name of a device in Matterbridge, which never changes
@@ -104,6 +107,30 @@ export function getDeviceLabel(endpoint: MatterbridgeEndpoint, name: string): st
  */
 export async function applyDeviceLabel(endpoints: readonly MatterbridgeEndpoint[], name: string): Promise<void> {
   for (const endpoint of endpoints) await endpoint.updateAttribute(BridgedDeviceBasicInformation, 'nodeLabel', getDeviceLabel(endpoint, name));
+}
+
+/**
+ * Create the bridged device basic information of an endpoint, with the product name it shows
+ *
+ * Matterbridge makes the unique id of a bridged device, which the Matter apps use to tell a device they know from a new
+ * one, from its name, its serial number, its vendor name and its product name. The cloud can name a machine later, or
+ * name it differently: the unique id is made with a product name that never changes, and the product name shown is
+ * written afterwards.
+ *
+ * @param {MatterbridgeEndpoint} endpoint The endpoint, with no bridged device basic information yet.
+ * @param {string} name The name of the endpoint in Matterbridge, which never changes.
+ * @param {string} serial The serial number of the endpoint, which never changes.
+ * @param {number} vendorId The vendor id of the bridge.
+ * @param {string} productName The product name to show, cut to the 32 characters Matter takes.
+ * @returns {MatterbridgeEndpoint} The endpoint.
+ */
+function createBasicInformation(endpoint: MatterbridgeEndpoint, name: string, serial: string, vendorId: number, productName: string): MatterbridgeEndpoint {
+  endpoint.createDefaultBridgedDeviceBasicInformationClusterServer(name, serial, vendorId, vendorName, stableProductName);
+  const shown = productName.slice(0, maxProductNameLength);
+  endpoint.productName = shown;
+  // oxlint-disable-next-line typescript/no-non-null-assertion -- the bridged device basic information was just created
+  endpoint.getClusterServerOptions(BridgedDeviceBasicInformation)!.productName = shown;
+  return endpoint;
 }
 
 /**
@@ -191,15 +218,13 @@ function addFanControl(endpoint: MatterbridgeEndpoint, layout: AccessoryLayout):
  */
 export function createMainEndpoint(identity: EndpointIdentity, layout: AccessoryLayout): MatterbridgeEndpoint {
   const deviceType = layout.deviceType === 'airPurifier' ? airPurifier : fan;
-  const endpoint = new MatterbridgeEndpoint([deviceType, bridgedNode, powerSource], { id: identity.ids.resolve(identity.serial) })
-    .createDefaultIdentifyClusterServer()
-    .createDefaultBridgedDeviceBasicInformationClusterServer(
-      getDeviceName(identity.serial),
-      identity.serial,
-      identity.vendorId,
-      vendorName,
-      identity.productName.slice(0, maxProductNameLength),
-    )
+  const endpoint = createBasicInformation(
+    new MatterbridgeEndpoint([deviceType, bridgedNode, powerSource], { id: identity.ids.resolve(identity.serial) }).createDefaultIdentifyClusterServer(),
+    getDeviceName(identity.serial),
+    identity.serial,
+    identity.vendorId,
+    identity.productName,
+  )
     .createDefaultPowerSourceWiredClusterServer()
     .createOnOffClusterServer(false);
   setInitialLabel(endpoint, identity);
@@ -220,16 +245,13 @@ export function createMainEndpoint(identity: EndpointIdentity, layout: Accessory
  * @returns {MatterbridgeEndpoint} The endpoint.
  */
 function createExtraEndpoint(deviceType: DeviceTypeDefinition, identity: EndpointIdentity, key: string, code: string, label: string): MatterbridgeEndpoint {
-  const endpoint = new MatterbridgeEndpoint([deviceType, bridgedNode, powerSource], { id: identity.ids.resolve(`${identity.serial}-${key}`) })
-    .createDefaultIdentifyClusterServer()
-    .createDefaultBridgedDeviceBasicInformationClusterServer(
-      `${getDeviceName(identity.serial)} ${label}`,
-      `${identity.serial}-${code}`,
-      identity.vendorId,
-      vendorName,
-      `Dyson ${label}`,
-    )
-    .createDefaultPowerSourceWiredClusterServer();
+  const endpoint = createBasicInformation(
+    new MatterbridgeEndpoint([deviceType, bridgedNode, powerSource], { id: identity.ids.resolve(`${identity.serial}-${key}`) }).createDefaultIdentifyClusterServer(),
+    `${getDeviceName(identity.serial)} ${label}`,
+    `${identity.serial}-${code}`,
+    identity.vendorId,
+    `${vendorName} ${label}`,
+  ).createDefaultPowerSourceWiredClusterServer();
   return setInitialLabel(endpoint, identity, label);
 }
 
