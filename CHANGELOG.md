@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- [setup]: Sign out and remove a machine through a POST, so that the page shows a sign out or a removal that failed: Matterbridge answers a DELETE with 204 and no body, whatever the plugin returns, which showed every one as a success.
+
 ## [0.6.0] - 2026-10-25
 
 ### Added

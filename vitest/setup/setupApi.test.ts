@@ -78,19 +78,19 @@ describe('setupApi', () => {
     expect(await handleSetupRequest(platform, 'GET', 'nothing')).toBeUndefined();
     expect(await handleSetupRequest(platform, 'GET')).toBeUndefined();
     expect(await handleSetupRequest(platform, 'POST')).toBeUndefined();
-    expect(await handleSetupRequest(platform, 'POST', 'nothing', {}, {})).toBeUndefined();
+    expect(await handleSetupRequest(platform, 'POST', 'nothing', {})).toBeUndefined();
     expect(await handleSetupRequest(platform, 'PUT', 'state')).toBeUndefined();
     expect(await handleSetupRequest(platform, 'DELETE', 'state')).toBeUndefined();
   });
 
   test('should ask for a login code with a valid address and country', async () => {
-    expect(await handleSetupRequest(platform, 'POST', 'login-code', {}, { email: ' someone@example.com ', country: 'gb' })).toEqual({ ok: true, challengeId: 'challenge-1' });
+    expect(await handleSetupRequest(platform, 'POST', 'login-code', { email: ' someone@example.com ', country: 'gb' })).toEqual({ ok: true, challengeId: 'challenge-1' });
     expect(platform.requestLoginCode).toHaveBeenCalledWith('someone@example.com', 'GB');
-    expect(await handleSetupRequest(platform, 'POST', 'login-code', {}, { email: 'someone', country: 'GB' })).toEqual({
+    expect(await handleSetupRequest(platform, 'POST', 'login-code', { email: 'someone', country: 'GB' })).toEqual({
       ok: false,
       error: 'Enter the email address of your Dyson account',
     });
-    expect(await handleSetupRequest(platform, 'POST', 'login-code', {}, { email: 'someone@example.com', country: 'GBR' })).toEqual({
+    expect(await handleSetupRequest(platform, 'POST', 'login-code', { email: 'someone@example.com', country: 'GBR' })).toEqual({
       ok: false,
       error: 'Pick the country of your Dyson account',
     });
@@ -99,22 +99,22 @@ describe('setupApi', () => {
 
   test('should answer no challenge for an account that signs in with its password alone', async () => {
     platform.requestLoginCode.mockResolvedValueOnce(null);
-    expect(await handleSetupRequest(platform, 'POST', 'login-code', {}, { email: 'someone@example.com', country: 'GB' })).toEqual({ ok: true, challengeId: null });
+    expect(await handleSetupRequest(platform, 'POST', 'login-code', { email: 'someone@example.com', country: 'GB' })).toEqual({ ok: true, challengeId: null });
   });
 
   test('should sign in with the code and the password', async () => {
-    expect(await handleSetupRequest(platform, 'POST', 'login', {}, signIn)).toEqual({ ok: true, state });
+    expect(await handleSetupRequest(platform, 'POST', 'login', signIn)).toEqual({ ok: true, state });
     expect(platform.signIn).toHaveBeenCalledWith({ email: 'someone@example.com', country: 'GB', password: 'secret', challengeId: 'challenge-1', otpCode: '123456' });
   });
 
   test('should sign in with the password alone when there is no code', async () => {
     const { challengeId: _challengeId, otpCode: _otpCode, ...passwordAlone } = signIn;
-    expect(await handleSetupRequest(platform, 'POST', 'login', {}, passwordAlone)).toEqual({ ok: true, state });
+    expect(await handleSetupRequest(platform, 'POST', 'login', passwordAlone)).toEqual({ ok: true, state });
     expect(platform.signIn).toHaveBeenCalledWith({ email: 'someone@example.com', country: 'GB', password: 'secret' });
   });
 
   test('should say what a sign in lacks', async () => {
-    const failed = async (change: Record<string, unknown>): Promise<unknown> => handleSetupRequest(platform, 'POST', 'login', {}, { ...signIn, ...change });
+    const failed = async (change: Record<string, unknown>): Promise<unknown> => handleSetupRequest(platform, 'POST', 'login', { ...signIn, ...change });
     expect(await failed({ email: 1 })).toEqual({ ok: false, error: 'Enter the email address of your Dyson account' });
     expect(await failed({ country: undefined })).toEqual({ ok: false, error: 'Pick the country of your Dyson account' });
     expect(await failed({ password: '' })).toEqual({ ok: false, error: 'Enter the password of your Dyson account' });
@@ -125,7 +125,7 @@ describe('setupApi', () => {
   });
 
   test('should sign out', async () => {
-    expect(await handleSetupRequest(platform, 'DELETE', 'account')).toEqual({ ok: true });
+    expect(await handleSetupRequest(platform, 'POST', 'sign-out')).toEqual({ ok: true });
     expect(platform.signOut).toHaveBeenCalledTimes(1);
   });
 
@@ -142,15 +142,15 @@ describe('setupApi', () => {
   });
 
   test('should check a machine', async () => {
-    expect(await handleSetupRequest(platform, 'POST', 'probe', {}, { machine: purifierCool })).toEqual({ ok: true, result: ready });
-    expect(await handleSetupRequest(platform, 'POST', 'probe', {}, {})).toEqual({ ok: false, error: 'The machine has no valid serial number or type' });
+    expect(await handleSetupRequest(platform, 'POST', 'probe', { machine: purifierCool })).toEqual({ ok: true, result: ready });
+    expect(await handleSetupRequest(platform, 'POST', 'probe', {})).toEqual({ ok: false, error: 'The machine has no valid serial number or type' });
   });
 
   test('should save a device, and refuse one that is not valid', async () => {
     const device = createDeviceConfig(purifierCool);
-    expect(await handleSetupRequest(platform, 'POST', 'device', {}, { device })).toEqual({ ok: true, state });
+    expect(await handleSetupRequest(platform, 'POST', 'device', { device })).toEqual({ ok: true, state });
     expect(platform.saveDevice).toHaveBeenCalledWith(device);
-    expect(await handleSetupRequest(platform, 'POST', 'device', {}, { device: { name: 'A' } })).toEqual({
+    expect(await handleSetupRequest(platform, 'POST', 'device', { device: { name: 'A' } })).toEqual({
       ok: false,
       error: 'The device needs a name of at most 32 characters, the serial number of its machine and its type',
     });
@@ -158,26 +158,31 @@ describe('setupApi', () => {
 
   test('should save a device with a host, and refuse a host that is not valid', async () => {
     const device = createDeviceConfig(purifierCool, { host: '192.168.1.20' });
-    expect(await handleSetupRequest(platform, 'POST', 'device', {}, { device })).toEqual({ ok: true, state });
+    expect(await handleSetupRequest(platform, 'POST', 'device', { device })).toEqual({ ok: true, state });
     expect(platform.saveDevice).toHaveBeenCalledWith(device);
     vi.mocked(platform.saveDevice).mockClear();
-    expect(await handleSetupRequest(platform, 'POST', 'device', {}, { device: { ...device, host: 'http://purifier' } })).toEqual({
+    expect(await handleSetupRequest(platform, 'POST', 'device', { device: { ...device, host: 'http://purifier' } })).toEqual({
       ok: false,
       error: 'Enter a host name or an IPv4 address for Living Room, or leave the host empty to search your network for it',
     });
     expect(platform.saveDevice).not.toHaveBeenCalled();
   });
 
-  test('should remove a device by the serial number of its machine', async () => {
-    expect(await handleSetupRequest(platform, 'DELETE', 'device', { serialNumber: purifierCool.serialNumber })).toEqual({ ok: true });
+  test('should remove a device by the serial number of its machine, and say when it fails: a POST, as Matterbridge gives a DELETE no body', async () => {
+    expect(await handleSetupRequest(platform, 'POST', 'remove-device', { serialNumber: purifierCool.serialNumber })).toEqual({ ok: true });
     platform.removeDevice.mockResolvedValueOnce(false);
-    expect(await handleSetupRequest(platform, 'DELETE', 'device', { serialNumber: 'NK6' })).toEqual({ ok: false, error: 'No device has the machine NK6' });
-    expect(await handleSetupRequest(platform, 'DELETE', 'device', {})).toEqual({ ok: false, error: 'Give the serial number of the machine of the device to remove' });
+    expect(await handleSetupRequest(platform, 'POST', 'remove-device', { serialNumber: 'NK6' })).toEqual({ ok: false, error: 'No device has the machine NK6' });
+    expect(await handleSetupRequest(platform, 'POST', 'remove-device', {})).toEqual({ ok: false, error: 'Give the serial number of the machine of the device to remove' });
+    platform.removeDevice.mockRejectedValueOnce(new Error('The configuration could not be written'));
+    expect(await handleSetupRequest(platform, 'POST', 'remove-device', { serialNumber: purifierCool.serialNumber })).toEqual({
+      ok: false,
+      error: 'The configuration could not be written',
+    });
   });
 
   test('should answer a failure with its message, never a thrown error', async () => {
     platform.requestLoginCode.mockRejectedValueOnce(new Error('Too many requests'));
-    expect(await handleSetupRequest(platform, 'POST', 'login-code', {}, { email: 'someone@example.com', country: 'GB' })).toEqual({ ok: false, error: 'Too many requests' });
+    expect(await handleSetupRequest(platform, 'POST', 'login-code', { email: 'someone@example.com', country: 'GB' })).toEqual({ ok: false, error: 'Too many requests' });
     platform.getSetupState.mockRejectedValueOnce('down');
     expect(await handleSetupRequest(platform, 'GET', 'state')).toEqual({ ok: false, error: 'down' });
   });

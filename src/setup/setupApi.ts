@@ -3,7 +3,7 @@
  * @description This file contains the REST API of the guided setup page, which Matterbridge serves through onFetch.
  * @author Calvin Che
  * @created 2026-10-19
- * @version 1.1.0
+ * @version 1.2.0
  * @license Apache-2.0
  *
  * Copyright 2026 Calvin Che.
@@ -132,21 +132,26 @@ export type SignInRequest = {
   | { challengeId?: undefined; otpCode?: undefined }
 );
 
-/** What each request carries back when it worked, by its method and its path. The setup page reads its replies by it. */
+/**
+ * What each request carries back when it worked, by its method and its path. The setup page reads its replies by it.
+ *
+ * Every request is a GET or a POST: Matterbridge answers a DELETE with 204 and no body, whatever the plugin returns,
+ * which would hide a failure from the page.
+ */
 export interface SetupReplies {
   'GET state': { state: SetupState };
   'GET countries': { countries: string[] };
   /** No challenge id for an account that signs in with its password alone: the cloud emailed it no code. */
   'POST login-code': { challengeId: string | null };
   'POST login': { state: SetupState };
-  /** Nothing but that it worked. Matterbridge answers a DELETE with 204 and no body. */
-  'DELETE account': object;
+  /** Nothing but that it worked. */
+  'POST sign-out': object;
   'POST machines': { machines: FoundMachine[] };
   /** The state once the machine list of the account was read again, as the page asks when it opens. */
   'POST sync': { state: SetupState };
   'POST probe': { result: ProbeResult };
   'POST device': { state: SetupState };
-  'DELETE device': object;
+  'POST remove-device': object;
 }
 
 /** Every reply says whether the request worked, so the page never has to read an HTTP status. */
@@ -276,6 +281,10 @@ async function handlePost(platform: SetupPlatform, path: string, body: Record<st
     await platform.signIn(request);
     return { ok: true, state: await platform.getSetupState() };
   }
+  if (path === 'sign-out') {
+    await platform.signOut();
+    return { ok: true };
+  }
   if (path === 'machines') return { ok: true, machines: await platform.listMachines() };
   if (path === 'sync') {
     await platform.syncMachines();
@@ -295,14 +304,19 @@ async function handlePost(platform: SetupPlatform, path: string, body: Record<st
     await platform.saveDevice(device);
     return { ok: true, state: await platform.getSetupState() };
   }
+  if (path === 'remove-device') {
+    const { serialNumber } = body;
+    if (!isValidSerialNumber(serialNumber)) return fail('Give the serial number of the machine of the device to remove');
+    return (await platform.removeDevice(serialNumber)) ? { ok: true } : fail(`No device has the machine ${serialNumber}`);
+  }
   return undefined;
 }
 
 /**
  * Serve one request of the setup page
  *
- * Paths: `GET state`, `GET countries`, `POST login-code`, `POST login`, `DELETE account`, `POST machines`, `POST sync`,
- * `POST probe`, `POST device` and `DELETE device?serialNumber=`. A password is accepted, used once and never stored or returned, and
+ * Paths: `GET state`, `GET countries`, `POST login-code`, `POST login`, `POST sign-out`, `POST machines`, `POST sync`,
+ * `POST probe`, `POST device` and `POST remove-device`. A password is accepted, used once and never stored or returned, and
  * the token of the account is never returned.
  *
  * Edge cases:
@@ -312,24 +326,14 @@ async function handlePost(platform: SetupPlatform, path: string, body: Record<st
  * @param {SetupPlatform} platform The platform.
  * @param {string} method The HTTP method.
  * @param {string} [path] The path after `api/`.
- * @param {Record<string, unknown>} [query] The query string parameters.
  * @param {unknown} [body] The parsed JSON body.
  * @returns {Promise<SetupReply | undefined>} The reply.
  */
-export async function handleSetupRequest(platform: SetupPlatform, method: string, path?: string, query?: Record<string, unknown>, body?: unknown): Promise<SetupReply | undefined> {
+export async function handleSetupRequest(platform: SetupPlatform, method: string, path?: string, body?: unknown): Promise<SetupReply | undefined> {
   try {
     if (method === 'GET' && path === 'state') return { ok: true, state: await platform.getSetupState() };
     if (method === 'GET' && path === 'countries') return { ok: true, countries: await platform.getCountries() };
     if (method === 'POST' && path !== undefined) return await handlePost(platform, path, toRecord(body));
-    if (method === 'DELETE' && path === 'account') {
-      await platform.signOut();
-      return { ok: true };
-    }
-    if (method === 'DELETE' && path === 'device') {
-      const serialNumber = query?.serialNumber;
-      if (!isValidSerialNumber(serialNumber)) return fail('Give the serial number of the machine of the device to remove');
-      return (await platform.removeDevice(serialNumber)) ? { ok: true } : fail(`No device has the machine ${serialNumber}`);
-    }
     return undefined;
   } catch (error) {
     return fail(getErrorMessage(error));
