@@ -3,7 +3,7 @@
  * @description This file contains the plugin configuration model and its validation.
  * @author Calvin Che
  * @created 2026-10-19
- * @version 1.1.0
+ * @version 1.2.0
  * @license Apache-2.0
  *
  * Copyright 2026 Calvin Che.
@@ -552,9 +552,12 @@ export function toDysonMachine(config: DysonDeviceConfig): DysonMachine {
 /**
  * Tell whether two stored devices are the same machine as the cloud reports it
  *
+ * The product name is a label, which Matter shows and nothing is connected by: a cloud that names a machine
+ * differently changes it in place, without a reconnect.
+ *
  * @param {DysonDeviceConfig} left One device.
  * @param {DysonDeviceConfig} right The other device.
- * @returns {boolean} True when every field the client is built from is the same, the names aside.
+ * @returns {boolean} True when every field the client is built from is the same, the names and the product name aside.
  */
 export function hasSameMachine(left: DysonDeviceConfig, right: DysonDeviceConfig): boolean {
   return (
@@ -563,7 +566,6 @@ export function hasSameMachine(left: DysonDeviceConfig, right: DysonDeviceConfig
     left.variant === right.variant &&
     left.mqttRootTopicLevel === right.mqttRootTopicLevel &&
     left.model === right.model &&
-    left.productName === right.productName &&
     left.firmwareVersion === right.firmwareVersion &&
     (left.firmwareCapabilities ?? []).join() === (right.firmwareCapabilities ?? []).join() &&
     left.host === right.host &&

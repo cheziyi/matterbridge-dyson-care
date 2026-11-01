@@ -8,7 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Changed
 
-- [devices]: **Breaking:** every device changes its identity in Matter once more at the first start, and the Matter apps take it for a new device: put it back in its room once. The identity is now made without the product name, so a cloud that names a machine later, or names it differently, changes nothing in Matter. The machine list of the account updates the product name again, and the setup page shows the name the cloud gives the machine now.
+- [devices]: **Breaking:** every device changes its identity in Matter once more at the first start, and the Matter apps take it for a new device: put it back in its room once. The identity is now made without the product name, so a cloud that names a machine later, or names it differently, changes nothing in Matter. The machine list of the account updates the product name again, without reconnecting the machine, and the setup page shows the name the cloud gives the machine now.
 
 ### Fixed
 

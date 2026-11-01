@@ -66,5 +66,6 @@ export function getMachineUpdate(stored: DysonDeviceConfig, machines: readonly D
     firmwareCapabilities: match.firmwareCapabilities === undefined ? undefined : [...match.firmwareCapabilities],
     apPasswordHash: match.apPasswordHash,
   };
-  return hasSameMachine(stored, updated) && stored.roomName === updated.roomName ? undefined : updated;
+  // The room name and the product name are labels, which change the stored device without a reconnect.
+  return hasSameMachine(stored, updated) && stored.roomName === updated.roomName && stored.productName === updated.productName ? undefined : updated;
 }
