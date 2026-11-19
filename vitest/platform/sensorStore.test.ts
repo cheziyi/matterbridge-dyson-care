@@ -6,7 +6,7 @@
 
 /* oxlint-disable unicorn/no-useless-undefined */
 
-import type { NodeStorage } from 'node-persist-manager';
+import type { NodeStorage } from 'matterbridge/storage';
 
 import { noReportedSensors } from '../../src/controls.js';
 import { SensorStore } from '../../src/platform/sensorStore.js';
