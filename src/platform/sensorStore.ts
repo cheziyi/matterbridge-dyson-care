@@ -21,8 +21,8 @@
  * limitations under the License.
  */
 
+import type { NodeStorage } from 'matterbridge/storage';
 import { isValidBoolean, isValidObject } from 'matterbridge/utils';
-import type { NodeStorage } from 'node-persist-manager';
 
 import type { DysonDeviceConfig } from '../config.js';
 import { noReportedSensors, REPORTED_SENSORS, type ReportedSensors } from '../controls.js';
